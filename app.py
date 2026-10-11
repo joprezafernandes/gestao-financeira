@@ -75,7 +75,7 @@ with tab_registo:
     else:
         opcoes_cat = [
             "Empregada Afeta à Empresa / Apoio Operacional",
-            "Impostos Empresa (IRC / Retenções / Guias)",
+            "Impostos Empresa (IRC / Retenções)",
             "Refeição de Serviço / Reunião Clínica",
             "Combustível de Serviço / Deslocações",
             "Material Clínico / Consumíveis / Farmácia",
@@ -96,7 +96,7 @@ with tab_registo:
         st.write("")
         btn_adicionar = st.button("Registar Gasto", use_container_width=True)
 
-    desc_gasto = st.text_input("Descrição / Detalhe (Opcional):", placeholder="Ex.: Horas semanais empregada, Continente, Uber Eats, Guia IRC...")
+    desc_gasto = st.text_input("Descrição / Detalhe (Opcional):", placeholder="Ex.: Continente, Uber Eats, Horas empregada...")
 
     if btn_adicionar:
         novo = {
@@ -109,7 +109,7 @@ with tab_registo:
         }
         db["despesas_diarias"].append(novo)
         save_data(db)
-        st.success(f"Gasto de {valor_gasto:.2f} EUR registado em '{entidade_gasto}' -> '{cat_gasto}'!")
+        st.success(f"Gasto registado em '{entidade_gasto}'!")
 
     st.divider()
 
@@ -150,90 +150,5 @@ with tab_registo:
         
         st.write(f"**Takeaway / Uber Eats:** Gastos **{g_take:.2f} EUR** de **{t_take:.2f} EUR** (Resta: **{sobra_take:.2f} EUR**)")
         st.progress(prog_take)
-        if sobra_take < 0:
-            st.error(f"Teto de Takeaway ultrapassado em {abs(sobra_take):.2f} EUR!")
-        elif sobra_take <= 25:
-            st.warning("Atenção: Menos de 25 EUR disponíveis para takeaway este mês.")
 
-        g_rest = gastos_por_cat_pes.get("Restaurantes em Família", 0.0)
-        t_rest = tetos_padrao["Restaurantes em Família"]
-        sobra_rest = t_rest - g_rest
-        prog_rest = min(1.0, g_rest / t_rest) if t_rest > 0 else 1.0
-        
-        st.write(f"**Restaurantes em Família:** Gastos **{g_rest:.2f} EUR** de **{t_rest:.2f} EUR** (Resta: **{sobra_rest:.2f} EUR**)")
-        st.progress(prog_rest)
-        if sobra_rest < 0:
-            st.error(f"Teto de Restaurantes ultrapassado em {abs(sobra_rest):.2f} EUR!")
-
-    with col_t2:
-        st.markdown("#### Totais de Controlo: Pessoal vs Empresa")
-        g_sup = gastos_por_cat_pes.get("Supermercado & Alimentação em Casa", 0.0)
-        t_sup = tetos_padrao["Supermercado & Alimentação em Casa"]
-        sobra_sup = t_sup - g_sup
-        prog_sup = min(1.0, g_sup / t_sup) if t_sup > 0 else 1.0
-        
-        st.write(f"**Supermercado & Casa:** Gastos **{g_sup:.2f} EUR** de **{t_sup:.2f} EUR** (Resta: **{sobra_sup:.2f} EUR**)")
-        st.progress(prog_sup)
-
-        total_gastos_pessoais = sum(gastos_por_cat_pes.values())
-        teto_global = sum(tetos_padrao.values())
-        sobra_global = teto_global - total_gastos_pessoais
-        
-        c_m1, c_m2 = st.columns(2)
-        c_m1.metric("Total Variável Pessoal", f"{total_gastos_pessoais:,.2f} EUR", f"Resta {sobra_global:,.2f} EUR")
-        c_m2.metric("Total Lançado Empresa", f"{total_gasto_empresa:,.2f} EUR", "Dedutível / Fiscal")
-
-    st.divider()
-    st.subheader("3. Movimentos Registados Deste Mês")
-    if not gastos_df.empty:
-        filtro_entidade = st.radio("Filtrar Tabela por:", ["Todos os Gastos", "Apenas Pessoal Familiar", "Apenas Empresa (ElementarPrivilege)"], horizontal=True)
-        if filtro_entidade == "Apenas Pessoal Familiar":
-            df_mostrar = gastos_pessoais
-        elif filtro_entidade == "Apenas Empresa (ElementarPrivilege)":
-            df_mostrar = gastos_empresa
-        else:
-            df_mostrar = gastos_df
-
-        st.dataframe(df_mostrar[["data", "entidade", "categoria", "descricao", "valor"]].sort_values(by="data", ascending=False), use_container_width=True, hide_index=True)
-        if st.button("Limpar Todos os Gastos Registados Deste Mês"):
-            db["despesas_diarias"] = []
-            save_data(db)
-            st.rerun()
-    else:
-        st.info("Ainda não há gastos diários registados para este mês.")
-
-# ========================================================
-# ABA 2: ORÇAMENTO & PLANEAMENTO MENSAL EXAUSTIVO
-# ========================================================
-with tab_orcamento:
-    st.subheader("1. Entradas Reais do Mês Corrente")
-    
-    col_in1, col_in2 = st.columns(2)
-    with col_in1:
-        st.markdown("**Conta Pessoal (BPI Particular)**")
-        rec_ulsaave = st.number_input(
-            "Vencimento Hospitalar Líquido ULSAAVE [EUR]:",
-            min_value=0.0,
-            value=3500.0,
-            step=50.0
-        )
-
-    with col_in2:
-        st.markdown("**Conta Empresa (ElementarPrivilege - BPI Negócios)**")
-        rec_empresa = st.number_input(
-            "Faturação Clínica / Cirúrgica Privada Líquida [EUR]:",
-            min_value=0.0,
-            value=7800.0,
-            step=100.0
-        )
-
-    st.divider()
-
-    st.subheader("2. Detalhe Completo das Despesas Fixas")
-    
-    col_fx1, col_fx2 = st.columns(2)
-    with col_fx1:
-        st.markdown("#### Empresa (ElementarPrivilege - Conta BPI Negócios)")
-        fx_emp_empresa = st.number_input("Empregada / Apoio Operacional Sede da Empresa [EUR]:", value=963.78, step=10.0, help="Remuneração afeta à empresa (ex.: serviços de apoio e limpeza da fração/sede)")
-        fx_impostos_empresa = st.number_input("Impostos da Empresa (IRC / Pagamentos por Conta / Retenções) [EUR]:", value=0.00, step=50.0, help="Rubrica para acomodar liquidações de IRC ou retenções fiscais da empresa")
-        fx_cheque_creche = st.number_input("Cheques-Creche / Infância dos Filhos [EUR]:", value=105
+        g_rest = gastos_por_cat_pes.get("Restaurantes em Família", 0
