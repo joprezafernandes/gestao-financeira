@@ -190,7 +190,7 @@ with t2:
         p_ch1 = st.number_input("Credito Habitacao Tranche 003 (EUR):", value=2856.81, step=10.0)
         p_ch2 = st.number_input("Credito Habitacao Tranche 004 (EUR):", value=722.31, step=10.0)
         p_seg = st.number_input("Seguros Habitacao (EUR):", value=110.0, step=10.0)
-        p_horas = st.number_input("Empregada Pessoal (EUR):", value=430.0, step=10.0)
+        p_horas = st.number_input("Empregada Pessoal (EUR):", value=646.50, step=10.0)
         p_luz = st.number_input("Eletricidade (EUR):", value=277.03, step=10.0)
         p_irs = st.number_input("Prestacao IRS Divida Atual (EUR):", value=1385.52, step=10.0)
         tot_fixo_pes = p_ch1 + p_ch2 + p_seg + p_horas + p_luz + p_irs
@@ -206,7 +206,7 @@ with t3:
         {"Dia": "01", "Origem": "BPI Pessoal -> Revolut", "Descricao": "Orcamento Variavel Familiar", "Valor": "-1.880,00 EUR"},
         {"Dia": "01", "Origem": "ElementarPrivilege", "Descricao": "Empregada Empresa", "Valor": "-963,78 EUR"},
         {"Dia": "01", "Origem": "ElementarPrivilege", "Descricao": "TSU Seg. Social", "Valor": "-620,29 EUR"},
-        {"Dia": "04", "Origem": "BPI Pessoal", "Descricao": "Empregada Pessoal", "Valor": "-430,00 EUR"},
+        {"Dia": "04", "Origem": "BPI Pessoal", "Descricao": "Empregada Pessoal", "Valor": "-646,50 EUR"},
         {"Dia": "05", "Origem": "ElementarPrivilege", "Descricao": "VW Bank Viatura", "Valor": "-618,79 EUR"},
         {"Dia": "08", "Origem": "ElementarPrivilege", "Descricao": "Cheques-Creche", "Valor": "-1.050,56 EUR"},
         {"Dia": "10", "Origem": "ElementarPrivilege", "Descricao": "Credito Medico", "Valor": "-1.120,00 EUR"},
@@ -224,4 +224,4 @@ with t3:
 with t4:
     st.subheader("Passivos Transitarios")
     st.write(f"Divida Empreiteiro: **{db['transitorio']['empreiteiro_saldo']:.2f} EUR**")
-    st.write(f"Divida IRS Financas: **{db['transitorio']['irs_saldo']:.2f} EUR**")
+    st.write(f"Divida IRS Financas: **{db['transitorio']['irs_saldo']:.2f} EUR**"
