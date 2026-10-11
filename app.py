@@ -44,7 +44,44 @@ st.title("Gestao Financeira Familiar & Empresa")
 t1, t2, t3, t4 = st.tabs(["Registo Diario", "Orcamento Mensal", "Cronograma", "Passivos"])
 
 with t1:
-    st.subheader("1. Lancar Despesa")
+    st.subheader("1. Tetos Definidos para Este Mes")
+    
+    # Calcular totais ja gastos
+    df_gastos = pd.DataFrame(db["despesas_diarias"])
+    if not df_gastos.empty:
+        df_pes = df_gastos[df_gastos["entidade"] == "Pessoal Familiar"]
+        df_emp = df_gastos[df_gastos["entidade"] == "Empresa (ElementarPrivilege)"]
+        gasto_pes = df_pes["valor"].sum() if not df_pes.empty else 0.0
+        gasto_emp = df_emp["valor"].sum() if not df_emp.empty else 0.0
+    else:
+        gasto_pes = 0.0
+        gasto_emp = 0.0
+
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+        teto_pes = st.number_input("Teto Pessoal Familiar (EUR):", value=250.0, step=50.0)
+        resta_pes = teto_pes - gasto_pes
+        prog_pes = min(1.0, max(0.0, gasto_pes / teto_pes)) if teto_pes > 0 else 1.0
+        st.write(f"Gasto: **{gasto_pes:.2f} EUR** / Teto: **{teto_pes:.2f} EUR**")
+        st.progress(prog_pes)
+        if resta_pes < 0:
+            st.error(f"Teto Pessoal ultrapassado em {abs(resta_pes):.2f} EUR!")
+        else:
+            st.metric("Saldo Restante Pessoal", f"{resta_pes:.2f} EUR")
+
+    with col_t2:
+        teto_emp = st.number_input("Teto Operacional Empresa (EUR):", value=660.0, step=50.0)
+        resta_emp = teto_emp - gasto_emp
+        prog_emp = min(1.0, max(0.0, gasto_emp / teto_emp)) if teto_emp > 0 else 1.0
+        st.write(f"Gasto: **{gasto_emp:.2f} EUR** / Teto: **{teto_emp:.2f} EUR**")
+        st.progress(prog_emp)
+        if resta_emp < 0:
+            st.error(f"Teto Empresa ultrapassado em {abs(resta_emp):.2f} EUR!")
+        else:
+            st.metric("Saldo Restante Empresa", f"{resta_emp:.2f} EUR")
+
+    st.divider()
+    st.subheader("2. Lancar Despesa")
     entidade = st.radio("Conta:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
     if entidade == "Pessoal Familiar":
         cats = [
@@ -93,25 +130,15 @@ with t1:
         st.rerun()
 
     st.divider()
-    st.subheader("2. Tetos em Tempo Real")
-    df_gastos = pd.DataFrame(db["despesas_diarias"])
+    st.subheader("3. Historico de Gastos Registados")
     if not df_gastos.empty:
-        df_pes = df_gastos[df_gastos["entidade"] == "Pessoal Familiar"]
-        df_emp = df_gastos[df_gastos["entidade"] == "Empresa (ElementarPrivilege)"]
-        tot_pes = df_pes["valor"].sum() if not df_pes.empty else 0.0
-        tot_emp = df_emp["valor"].sum() if not df_emp.empty else 0.0
-        
-        c_p1, c_p2 = st.columns(2)
-        c_p1.metric("Total Pessoal Lancado", f"{tot_pes:.2f} EUR")
-        c_p2.metric("Total Empresa Lancado", f"{tot_emp:.2f} EUR")
-        
         st.dataframe(df_gastos[["data", "entidade", "categoria", "descricao", "valor"]].sort_values(by="data", ascending=False), use_container_width=True)
         if st.button("Limpar Gastos"):
             db["despesas_diarias"] = []
             save_data(db)
             st.rerun()
     else:
-        st.info("Sem movimentos este mes.")
+        st.info("Ainda nao existem despesas registadas.")
 
 with t2:
     st.subheader("Orcamento Mensal")
@@ -143,7 +170,7 @@ with t2:
         p_ch1 = st.number_input("Credito Habitacao Tranche 003 (EUR):", value=2856.81, step=10.0)
         p_ch2 = st.number_input("Credito Habitacao Tranche 004 (EUR):", value=722.31, step=10.0)
         p_seg = st.number_input("Seguros Habitacao (EUR):", value=110.0, step=10.0)
-        p_horas = st.number_input("Empregada Pessoal (EUR):", value=430.0, step=10.0)
+        p_horas = st.number_input("Empregada Pessoal (Horas x 8.50 EUR):", value=430.0, step=10.0)
         p_luz = st.number_input("Eletricidade (EUR):", value=277.03, step=10.0)
         p_irs = st.number_input("Prestacao IRS Financas (EUR):", value=1385.52, step=10.0)
         tot_fixo_pes = p_ch1 + p_ch2 + p_seg + p_horas + p_luz + p_irs
