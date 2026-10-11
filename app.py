@@ -140,23 +140,30 @@ with t1:
         st.info("Ainda nao existem despesas registadas.")
 
 with t2:
-    st.subheader("1. Entradas e Provisao Automatica de Impostos do Proximo Ano")
+    st.subheader("1. Entradas e Provisao de Impostos do Proximo Ano")
     c_rec1, c_rec2 = st.columns(2)
     with c_rec1:
-        st.markdown("#### Pessoal Familiar (BPI Particular)")
-        rec_hosp = st.number_input("Vencimento Hospital ULSAAVE (EUR):", value=3500.0, step=50.0)
-        st.markdown("**Reserva Fiscal Pessoal Recomendada (IRS):**")
-        perc_irs = st.slider("% Provisao IRS Pessoal (Sobre Rendas/Escalao):", min_value=0.0, max_value=15.0, value=8.5, step=0.5)
-        prov_irs = round(rec_hosp * (perc_irs / 100.0), 2)
-        st.info(f"Cativar para Cofre IRS Pessoal: **{prov_irs:.2f} EUR / mes** (~{prov_irs*12:,.0f} EUR/ano)")
+        st.markdown("#### Pessoal Familiar (BPI Particular - Hospital)")
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            rec_fixo_hosp = st.number_input("Fixo Liquido Hospital (Ded. Plena):", value=3000.0, step=50.0)
+        with col_f2:
+            rec_var_hosp = st.number_input("Variavel Liquido (SIGIC/Urgencia):", value=1500.0, step=100.0)
+        
+        tot_liq_hosp = rec_fixo_hosp + rec_var_hosp
+        st.write(f"Total Liquido Hospitalar: **{tot_liq_hosp:,.2f} EUR**")
+        
+        st.markdown("**Reserva Fiscal IRS Pessoal (25% Renda Predial Moradia + Ajuste):**")
+        prov_irs = st.number_input("Cativar para Cofre IRS Pessoal (EUR/mes):", value=250.0, step=25.0)
+        st.info(f"Cativar no Dia 24 para IRS: **{prov_irs:.2f} EUR / mes** (~{prov_irs*12:,.0f} EUR/ano)")
 
     with c_rec2:
         st.markdown("#### Empresa (ElementarPrivilege - BPI Negocios)")
         rec_clin = st.number_input("Faturacao Clinica Privada (EUR):", value=7800.0, step=100.0)
-        st.markdown("**Reserva Fiscal Empresa Recomendada (IRC + Derrama):**")
+        st.markdown("**Reserva Fiscal Empresa (IRC + Derrama Municipal):**")
         perc_irc = st.slider("% Provisao IRC Empresa (Sobre Faturacao):", min_value=0.0, max_value=15.0, value=7.0, step=0.5)
         prov_irc = round(rec_clin * (perc_irc / 100.0), 2)
-        st.info(f"Cativar para Conta Poupanca IRC: **{prov_irc:.2f} EUR / mes** (~{prov_irc*12:,.0f} EUR/ano)")
+        st.info(f"Cativar no Dia 16 para Poupanca IRC: **{prov_irc:.2f} EUR / mes** (~{prov_irc*12:,.0f} EUR/ano)")
 
     st.divider()
     st.subheader("2. Despesas Fixas Mensais")
@@ -187,7 +194,7 @@ with t2:
         p_luz = st.number_input("Eletricidade (EUR):", value=277.03, step=10.0)
         p_irs = st.number_input("Prestacao IRS Divida Atual (EUR):", value=1385.52, step=10.0)
         tot_fixo_pes = p_ch1 + p_ch2 + p_seg + p_horas + p_luz + p_irs
-        sobra_pessoal_apos_reserva = rec_hosp - tot_fixo_pes - prov_irs
+        sobra_pessoal_apos_reserva = tot_liq_hosp - tot_fixo_pes - prov_irs
         
         c_p1, c_p2 = st.columns(2)
         c_p1.metric("Total Pessoal Fixo", f"{tot_fixo_pes:.2f} EUR")
@@ -207,7 +214,7 @@ with t3:
         {"Dia": "15", "Origem": "ElementarPrivilege", "Descricao": "Tranche Empreiteiro Obra", "Valor": "-1.437,00 EUR"},
         {"Dia": "16", "Origem": "ElementarPrivilege -> Poupanca", "Descricao": "RESERVA FISCAL IRC (ANO SEGUINTE)", "Valor": f"-{prov_irc:.2f} EUR"},
         {"Dia": "20", "Origem": "ElementarPrivilege", "Descricao": "Impostos Empresa Correntes", "Valor": "Variavel"},
-        {"Dia": "20-23", "Origem": "BPI Pessoal", "Descricao": "Entrada ULSAAVE", "Valor": "+3.500,00 EUR"},
+        {"Dia": "20-23", "Origem": "BPI Pessoal", "Descricao": "Entrada Hospital (Fixo + Variavel)", "Valor": f"+{tot_liq_hosp:,.2f} EUR"},
         {"Dia": "24", "Origem": "BPI Pessoal -> Cofre", "Descricao": "RESERVA FISCAL IRS (ANO SEGUINTE)", "Valor": f"-{prov_irs:.2f} EUR"},
         {"Dia": "30", "Origem": "BPI Pessoal", "Descricao": "Credito Habitacao (003 + 004)", "Valor": "-3.579,12 EUR"},
         {"Dia": "31", "Origem": "BPI Pessoal", "Descricao": "Prestacao IRS (Plano Atual)", "Valor": "-1.385,52 EUR"}
