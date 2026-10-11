@@ -224,4 +224,4 @@ with t3:
 with t4:
     st.subheader("Passivos Transitarios")
     st.write(f"Divida Empreiteiro: **{db['transitorio']['empreiteiro_saldo']:.2f} EUR**")
-    st.write(f"Divida IRS Financas: **{db['transitorio']['irs_saldo']:.2f} EUR**"
+    st.write(f"Divida IRS Financas: **{db['transitorio']['irs_saldo']:.2f} EUR**")
