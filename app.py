@@ -7,9 +7,9 @@ st.set_page_config(page_title="Gestao Financeira", page_icon="⚖️", layout="w
 
 st.title("Gestao Financeira Familiar & Empresa")
 
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1Vcbu6WNEWlghyQbSrRY0d8879-WOa9F6P6WKzPyt3f8/edit?usp=sharing"
+# Ligacao direta a nova folha criada no Google Drive
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1Vb2N6bwiU3XTCGTNGXgocYgnTBePxnsoUOfjrPy7RsU/edit?usp=sharing"
 
-# Ligacao oficial ao Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def carregar_dados():
@@ -66,7 +66,7 @@ with t1:
             st.metric("Saldo Restante Empresa", f"{resta_emp:.2f} EUR")
 
     st.divider()
-    st.subheader("2. Lancar Despesa (Gravacao em Tempo Real no Google Drive)")
+    st.subheader("2. Lancar Despesa (Gravacao Direta no Google Drive)")
     entidade = st.radio("Conta:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
     if entidade == "Pessoal Familiar":
         cats = [
@@ -110,13 +110,13 @@ with t1:
         df_atualizado = pd.concat([df_gastos, nova_linha], ignore_index=True)
         try:
             conn.update(spreadsheet=SHEET_URL, data=df_atualizado)
-            st.success("Guardado na Google Sheet! Os dados estao permanentemente seguros.")
+            st.success("Guardado no Google Sheets com sucesso! Registo permanente.")
             st.rerun()
         except Exception as e:
             st.error(f"Erro ao sincronizar com Google Sheets: {e}")
 
     st.divider()
-    st.subheader("3. Historico Gravado no Google Sheets")
+    st.subheader("3. Historico de Gastos em Tempo Real")
     if not df_gastos.empty:
         st.dataframe(df_gastos.sort_values(by="data", ascending=False), use_container_width=True)
     else:
