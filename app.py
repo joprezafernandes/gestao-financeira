@@ -1,52 +1,38 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Gestao Financeira", page_icon="⚖️", layout="wide")
 
-DB_FILE = "finance_db.json"
-
-def load_data():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                d = json.load(f)
-                if "despesas_diarias" not in d:
-                    d["despesas_diarias"] = []
-                for it in d.get("despesas_diarias", []):
-                    if "entidade" not in it:
-                        it["entidade"] = "Pessoal Familiar"
-                return d
-        except Exception:
-            pass
-    return {
-        "transitorio": {
-            "empreiteiro_saldo": 8622.0,
-            "empreiteiro_meses": 6,
-            "irs_saldo": 17071.49,
-            "irs_prestacoes_total": 12,
-            "irs_prestacao_atual": 2
-        },
-        "despesas_diarias": [],
-        "historico": []
-    }
-
-def save_data(d):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(d, f, indent=4, ensure_ascii=False)
-
-db = load_data()
-
 st.title("Gestao Financeira Familiar & Empresa")
+
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1Vcbu6WNEWlghyQbSrRY0d8879-WOa9F6P6WKzPyt3f8/edit?usp=sharing"
+
+# Ligacao oficial ao Google Sheets
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def carregar_dados():
+    try:
+        df = conn.read(spreadsheet=SHEET_URL, ttl=0)
+        if df is None or df.empty:
+            df = pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
+        else:
+            for col in ["data", "entidade", "categoria", "descricao", "valor"]:
+                if col not in df.columns:
+                    df[col] = ""
+            df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
+        return df
+    except Exception:
+        return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
+
+df_gastos = carregar_dados()
 
 t1, t2, t3, t4 = st.tabs(["Registo Diario", "Orcamento & Impostos", "Cronograma", "Passivos"])
 
 with t1:
     st.subheader("1. Tetos Definidos para Este Mes")
     
-    df_gastos = pd.DataFrame(db["despesas_diarias"])
     if not df_gastos.empty:
         df_pes = df_gastos[df_gastos["entidade"] == "Pessoal Familiar"]
         df_emp = df_gastos[df_gastos["entidade"] == "Empresa (ElementarPrivilege)"]
@@ -80,26 +66,24 @@ with t1:
             st.metric("Saldo Restante Empresa", f"{resta_emp:.2f} EUR")
 
     st.divider()
-    st.subheader("2. Lancar Despesa")
+    st.subheader("2. Lancar Despesa (Gravacao em Tempo Real no Google Drive)")
     entidade = st.radio("Conta:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
     if entidade == "Pessoal Familiar":
         cats = [
             "Supermercado & Alimentacao em Casa",
             "Takeaway & Uber Eats",
             "Restaurantes em Familia",
-            "Criancas (Vestuario/Farmacia/Escola)",
+            "Criancas (Quota Pessoal Complementar)",
             "Empregada Domestica Pessoal",
-            "Lazer/Livros/Garrafeira",
-            "Combustivel Particular",
-            "Margem Livre do Casal",
+            "Lazer Familiar, Livros e Garrafeira",
             "Outro Gasto Pessoal"
         ]
     else:
         cats = [
-            "Empregada Afeta a Empresa",
+            "Combustivel / Portagens Servico (Empresa)",
+            "Refeicao Servico / Reuniao Clinica (Teto 350 EUR)",
+            "Empregada Afeta a Empresa (com Duodecimos)",
             "Impostos Empresa (IRC/Retencoes)",
-            "Refeicao Servico / Reuniao",
-            "Combustivel / Portagens Servico",
             "Material Clinico / Farmacia",
             "Software / Ferramentas Digitais",
             "Outro Operacional Empresa"
@@ -114,30 +98,29 @@ with t1:
         valor_mov = st.number_input("Valor (EUR):", min_value=0.01, step=1.0, format="%.2f")
 
     desc_mov = st.text_input("Descricao (Opcional):")
-    if st.button("Gravar Gasto", use_container_width=True):
-        novo = {
-            "id": int(datetime.now().timestamp()),
+    
+    if st.button("Gravar Despesa", use_container_width=True):
+        nova_linha = pd.DataFrame([{
             "data": data_mov.strftime("%Y-%m-%d"),
             "entidade": entidade,
             "categoria": cat_mov,
             "descricao": desc_mov if desc_mov else cat_mov,
             "valor": float(valor_mov)
-        }
-        db["despesas_diarias"].append(novo)
-        save_data(db)
-        st.success("Gasto registado com sucesso!")
-        st.rerun()
+        }])
+        df_atualizado = pd.concat([df_gastos, nova_linha], ignore_index=True)
+        try:
+            conn.update(spreadsheet=SHEET_URL, data=df_atualizado)
+            st.success("Guardado na Google Sheet! Os dados estao permanentemente seguros.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erro ao sincronizar com Google Sheets: {e}")
 
     st.divider()
-    st.subheader("3. Historico de Gastos Registados")
+    st.subheader("3. Historico Gravado no Google Sheets")
     if not df_gastos.empty:
-        st.dataframe(df_gastos[["data", "entidade", "categoria", "descricao", "valor"]].sort_values(by="data", ascending=False), use_container_width=True)
-        if st.button("Limpar Gastos"):
-            db["despesas_diarias"] = []
-            save_data(db)
-            st.rerun()
+        st.dataframe(df_gastos.sort_values(by="data", ascending=False), use_container_width=True)
     else:
-        st.info("Ainda nao existem despesas registadas.")
+        st.info("Ainda nao existem despesas registadas na folha.")
 
 with t2:
     st.subheader("1. Entradas e Provisao de Impostos do Proximo Ano")
@@ -170,7 +153,8 @@ with t2:
     col_e, col_p = st.columns(2)
     with col_e:
         st.markdown("#### Empresa (ElementarPrivilege)")
-        e_emp = st.number_input("Empregada Empresa (EUR):", value=963.78, step=10.0)
+        e_refeicoes = st.number_input("Refeicoes de Servico / Reunia Clinica (EUR):", value=350.00, step=25.0)
+        e_emp = st.number_input("Empregada Empresa (com Duodecimos) (EUR):", value=1040.00, step=10.0)
         e_imp = st.number_input("Impostos Pagos no Mes (Guias Correntes) (EUR):", value=0.0, step=50.0)
         e_creche = st.number_input("Cheques-Creche (EUR):", value=1050.56, step=10.0)
         e_med = st.number_input("Equipamento Medico BPI (EUR):", value=1120.0, step=10.0)
@@ -178,7 +162,7 @@ with t2:
         e_tsu = st.number_input("Seguranca Social TSU (EUR):", value=620.29, step=10.0)
         e_sede = st.number_input("MEO + Energia Sede (EUR):", value=216.0, step=10.0)
         e_obra = st.number_input("Tranche Obra Empreiteiro (EUR):", value=1437.0, step=10.0)
-        tot_fixo_emp = e_emp + e_imp + e_creche + e_med + e_carro + e_tsu + e_sede + e_obra
+        tot_fixo_emp = e_refeicoes + e_emp + e_imp + e_creche + e_med + e_carro + e_tsu + e_sede + e_obra
         sobra_empresa_apos_reserva = rec_clin - tot_fixo_emp - prov_irc
         
         c_e1, c_e2 = st.columns(2)
@@ -200,11 +184,13 @@ with t2:
         c_p1.metric("Total Pessoal Fixo", f"{tot_fixo_pes:.2f} EUR")
         c_p2.metric("Saldo Pessoal (Apos Reserva IRS)", f"{sobra_pessoal_apos_reserva:.2f} EUR")
 
+    st.info("Valor Aprovado para Transferir a Dia 01 para o Revolut Familiar: **1.030,00 EUR** (+220 EUR Cartao Refeicao)")
+
 with t3:
     st.subheader("Cronograma de Tesouraria (Incluindo Reservas Fiscais)")
     crono = [
-        {"Dia": "01", "Origem": "BPI Pessoal -> Revolut", "Descricao": "Orcamento Variavel Familiar", "Valor": "-1.880,00 EUR"},
-        {"Dia": "01", "Origem": "ElementarPrivilege", "Descricao": "Empregada Empresa", "Valor": "-963,78 EUR"},
+        {"Dia": "01", "Origem": "BPI Pessoal -> Revolut", "Descricao": "Orcamento Variavel Familiar (Ajustado)", "Valor": "-1.030,00 EUR"},
+        {"Dia": "01", "Origem": "ElementarPrivilege", "Descricao": "Empregada Empresa (com Duodecimos)", "Valor": "-1.040,00 EUR"},
         {"Dia": "01", "Origem": "ElementarPrivilege", "Descricao": "TSU Seg. Social", "Valor": "-620,29 EUR"},
         {"Dia": "04", "Origem": "BPI Pessoal", "Descricao": "Empregada Pessoal", "Valor": "-646,50 EUR"},
         {"Dia": "05", "Origem": "ElementarPrivilege", "Descricao": "VW Bank Viatura", "Valor": "-618,79 EUR"},
@@ -223,5 +209,5 @@ with t3:
 
 with t4:
     st.subheader("Passivos Transitarios")
-    st.write(f"Divida Empreiteiro: **{db['transitorio']['empreiteiro_saldo']:.2f} EUR**")
-    st.write(f"Divida IRS Financas: **{db['transitorio']['irs_saldo']:.2f} EUR**")
+    st.write("Divida Empreiteiro: **8.622,00 EUR** (6 tranches de 1.437 EUR ate Mar/2027)")
+    st.write("Divida IRS Financas: **17.071,49 EUR** (12 prestacoes de 1.385,52 EUR ate Ago/2027)")
