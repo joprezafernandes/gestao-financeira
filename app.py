@@ -22,7 +22,6 @@ def carregar_dados():
 
 df_gastos = carregar_dados()
 
-# Calculo automatico do ciclo de tesouraria (Dia 20 ao Dia 19 seguinte)
 hoje = date.today()
 if hoje.day >= 20:
     inicio_ciclo = date(hoje.year, hoje.month, 20)
@@ -33,13 +32,12 @@ else:
 
 str_inicio_ciclo = inicio_ciclo.strftime("%Y-%m-%d")
 
-# Filtra despesas apenas do ciclo em vigor para calcular os tetos
 if not df_gastos.empty and "data" in df_gastos.columns:
     df_ciclo = df_gastos[df_gastos["data"] >= str_inicio_ciclo]
 else:
     df_ciclo = df_gastos
 
-t1, t2, t3, t4 = st.tabs(["Registo Diario", "Orcamento", "Cronograma", "Passivos"])
+t1, t2, t3, t4 = st.tabs(["Registo Diario", "Orcamento & Entradas", "Cronograma", "Passivos"])
 
 with t1:
     st.subheader(f"Tetos do Ciclo em Vigor (Desde {inicio_ciclo.strftime('%d/%m/%Y')})")
@@ -102,18 +100,55 @@ with t1:
         st.info("Ainda nao existem despesas registadas na folha.")
 
 with t2:
-    st.subheader("Orcamento Mensal")
-    st.info("Transferencia Dia 01 para Revolut: **1.030,00 EUR** (+ 220 EUR Cartao Refeicao)")
-    st.write("- **Empresa Fixos:** 6.785,15 EUR (com obra de 1.437 EUR)")
-    st.write("- **Pessoal Fixos:** 6.117,08 EUR (com plano IRS de 1.385,52 EUR)")
+    st.subheader("1. Entradas Reais Deste Ciclo")
+    c_in1, c_in2 = st.columns(2)
+    with c_in1:
+        st.markdown("#### Empresa (ElementarPrivilege)")
+        rec_luz = st.number_input("Faturacao Hospital da Luz / Privado (Dia 18-19):", value=7800.0, step=100.0)
+        rec_consultorio = st.number_input("Entrada Consultorio & Outras Clinicas (Dia 30):", value=0.0, step=100.0)
+        tot_receita_emp = rec_luz + rec_consultorio
+        
+        perc_irc = st.slider("% Provisao IRC Empresa:", min_value=0.0, max_value=15.0, value=7.0, step=0.5)
+        reserva_irc = round(tot_receita_emp * (perc_irc / 100.0), 2)
+        st.info(f"Reserva IRC a cativar a dia 16 ({perc_irc}%): **{reserva_irc:.2f} EUR**")
+
+    with c_in2:
+        st.markdown("#### Pessoal Familiar (Hospital Publico)")
+        rec_pub_fixo = st.number_input("Vencimento Fixo Hospital Liquido:", value=3000.0, step=50.0)
+        rec_pub_var = st.number_input("Producao Adicional / SIGIC Liquido:", value=1500.0, step=100.0)
+        tot_receita_pes = rec_pub_fixo + rec_pub_var
+        
+        prov_irs = st.number_input("Reserva Fiscal IRS a cativar a dia 24:", value=250.0, step=25.0)
+        st.info(f"Reserva IRS a cativar a dia 24: **{prov_irs:.2f} EUR**")
+
+    st.divider()
+    st.subheader("2. Balanco Operacional do Mes")
+    col_b1, col_b2 = st.columns(2)
+    fixos_emp = 6785.15
+    fixos_pes = 6117.08
+    
+    saldo_emp_livre = tot_receita_emp - fixos_emp - reserva_irc
+    saldo_pes_livre = tot_receita_pes - fixos_pes - prov_irs
+    
+    with col_b1:
+        st.metric("Total Entradas Empresa", f"{tot_receita_emp:,.2f} EUR")
+        st.write(f"- Fixos Empresa (com Obra): **{fixos_emp:,.2f} EUR**")
+        st.write(f"- Reserva IRC: **{reserva_irc:,.2f} EUR**")
+        st.metric("Margem Livre Empresa", f"{saldo_emp_livre:,.2f} EUR")
+        
+    with col_b2:
+        st.metric("Total Entradas Pessoal", f"{tot_receita_pes:,.2f} EUR")
+        st.write(f"- Fixos Pessoais (CH + Divida IRS): **{fixos_pes:,.2f} EUR**")
+        st.write(f"- Reserva IRS: **{prov_irs:,.2f} EUR**")
+        st.metric("Margem Livre Pessoal", f"{saldo_pes_livre:,.2f} EUR")
 
 with t3:
-    st.subheader("Cronograma do Ciclo de Tesouraria (Dia 20 ao Dia 19)")
+    st.subheader("Cronograma Dinamico de Tesouraria (Dia 20 ao Dia 19)")
     crono_data = [
-        {"Dia": "18-19", "Tipo": "Entrada", "Conta": "Empresa", "Descricao": "Faturacao Hospital da Luz / Privado", "Valor": "+7.800,00 EUR"},
-        {"Dia": "20-23", "Tipo": "Entrada", "Conta": "Pessoal", "Descricao": "Vencimento Hospital (Fixo + SIGIC)", "Valor": "+4.500,00 EUR"},
-        {"Dia": "24", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Reserva Fiscal IRS (Ano Seguinte)", "Valor": "-250,00 EUR"},
-        {"Dia": "30", "Tipo": "Entrada", "Conta": "Empresa", "Descricao": "Entrada Consultorio & Clinicas", "Valor": "Variavel"},
+        {"Dia": "18-19", "Tipo": "Entrada", "Conta": "Empresa", "Descricao": "Faturacao Hospital da Luz / Privado", "Valor": f"+{rec_luz:,.2f} EUR"},
+        {"Dia": "20-23", "Tipo": "Entrada", "Conta": "Pessoal", "Descricao": "Vencimento Hospital (Fixo + SIGIC)", "Valor": f"+{tot_receita_pes:,.2f} EUR"},
+        {"Dia": "24", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Reserva Fiscal IRS (Ano Seguinte)", "Valor": f"-{prov_irs:,.2f} EUR"},
+        {"Dia": "30", "Tipo": "Entrada", "Conta": "Empresa", "Descricao": "Consultorio & Outras Clinicas", "Valor": f"+{rec_consultorio:,.2f} EUR"},
         {"Dia": "30", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Credito Habitacao (003 + 004)", "Valor": "-3.579,12 EUR"},
         {"Dia": "31", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Prestacao IRS (Plano Atual)", "Valor": "-1.385,52 EUR"},
         {"Dia": "01", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Revolut Orcamento Variavel Familiar", "Valor": "-1.030,00 EUR"},
@@ -124,7 +159,7 @@ with t3:
         {"Dia": "08", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Cheques-Creche", "Valor": "-1.050,56 EUR"},
         {"Dia": "10", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Credito Equipamento Medico", "Valor": "-1.120,00 EUR"},
         {"Dia": "15", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Tranche Empreiteiro Obra", "Valor": "-1.437,00 EUR"},
-        {"Dia": "16", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Reserva Fiscal IRC (Ano Seguinte)", "Valor": "-546,00 EUR"}
+        {"Dia": "16", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Reserva Fiscal IRC (Ano Seguinte)", "Valor": f"-{reserva_irc:,.2f} EUR"}
     ]
     st.dataframe(pd.DataFrame(crono_data), use_container_width=True)
 
