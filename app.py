@@ -1,19 +1,17 @@
 import streamlit as st
 import pandas as pd
+import requests
 from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(page_title="Gestao Financeira", page_icon="⚖️", layout="wide")
 st.title("Gestao Financeira")
 
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1Vb2N6bwiU3XTCGTNGXgocYgnTBePxnsoUOfjrPy7RsU/edit?usp=sharing"
-conn = st.connection("gsheets", type=GSheetsConnection)
+CSV_URL = "https://docs.google.com/spreadsheets/d/1Vb2N6bwiU3XTCGTNGXgocYgnTBePxnsoUOfjrPy7RsU/export?format=csv"
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyzreCAbgrp9r7WJKtpTOz5__JplbY9TB0C0qYRfB0E785dpeBdDT21cXBxCrk5huN14Q/exec"
 
 def carregar_dados():
     try:
-        df = conn.read(spreadsheet=SHEET_URL, ttl=0)
-        if df is None or df.empty:
-            return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
+        df = pd.read_csv(CSV_URL)
         for col in ["data", "entidade", "categoria", "descricao", "valor"]:
             if col not in df.columns:
                 df[col] = ""
@@ -61,26 +59,30 @@ with t1:
     valor_mov = c3.number_input("Valor (EUR):", min_value=0.01, step=1.0, format="%.2f")
     desc_mov = st.text_input("Descricao:")
 
-    if st.button("Gravar no Google Sheets", use_container_width=True):
-        nova = pd.DataFrame([{
+    if st.button("Gravar Despesa", use_container_width=True):
+        payload = {
             "data": data_mov.strftime("%Y-%m-%d"),
             "entidade": entidade,
             "categoria": cat_mov,
             "descricao": desc_mov if desc_mov else cat_mov,
             "valor": float(valor_mov)
-        }])
-        df_novo = pd.concat([df_gastos, nova], ignore_index=True)
+        }
         try:
-            conn.update(spreadsheet=SHEET_URL, data=df_novo)
-            st.success("Guardado na Google Sheet com sucesso!")
-            st.rerun()
+            r = requests.post(WEBHOOK_URL, json=payload, timeout=10)
+            if r.status_code == 200:
+                st.success("Guardado na Google Sheet com sucesso!")
+                st.rerun()
+            else:
+                st.error(f"Erro ao enviar: Codigo {r.status_code}")
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Erro na ligacao: {e}")
 
     st.divider()
     st.subheader("Historico de Gastos")
     if not df_gastos.empty:
         st.dataframe(df_gastos.sort_values(by="data", ascending=False), use_container_width=True)
+    else:
+        st.info("Ainda nao existem despesas registadas na folha.")
 
 with t2:
     st.subheader("Orcamento Mensal")
