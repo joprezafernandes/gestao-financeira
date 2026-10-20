@@ -7,7 +7,6 @@ st.set_page_config(page_title="Gestao Financeira", page_icon="⚖️", layout="w
 
 st.title("Gestao Financeira Familiar & Empresa")
 
-# Ligacao direta a nova folha criada no Google Drive
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1Vb2N6bwiU3XTCGTNGXgocYgnTBePxnsoUOfjrPy7RsU/edit?usp=sharing"
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -200,14 +199,4 @@ with t3:
         {"Dia": "15", "Origem": "ElementarPrivilege", "Descricao": "Tranche Empreiteiro Obra", "Valor": "-1.437,00 EUR"},
         {"Dia": "16", "Origem": "ElementarPrivilege -> Poupanca", "Descricao": "RESERVA FISCAL IRC (ANO SEGUINTE)", "Valor": f"-{prov_irc:.2f} EUR"},
         {"Dia": "20", "Origem": "ElementarPrivilege", "Descricao": "Impostos Empresa Correntes", "Valor": "Variavel"},
-        {"Dia": "20-23", "Origem": "BPI Pessoal", "Descricao": "Entrada Hospital (Fixo + Variavel)", "Valor": f"+{tot_liq_hosp:,.2f} EUR"},
-        {"Dia": "24", "Origem": "BPI Pessoal -> Cofre", "Descricao": "RESERVA FISCAL IRS (ANO SEGUINTE)", "Valor": f"-{prov_irs:.2f} EUR"},
-        {"Dia": "30", "Origem": "BPI Pessoal", "Descricao": "Credito Habitacao (003 + 004)", "Valor": "-3.579,12 EUR"},
-        {"Dia": "31", "Origem": "BPI Pessoal", "Descricao": "Prestacao IRS (Plano Atual)", "Valor": "-1.385,52 EUR"}
-    ]
-    st.dataframe(pd.DataFrame(crono), use_container_width=True)
-
-with t4:
-    st.subheader("Passivos Transitarios")
-    st.write("Divida Empreiteiro: **8.622,00 EUR** (6 tranches de 1.437 EUR ate Mar/2027)")
-    st.write("Divida IRS Financas: **17.071,49 EUR** (12 prestacoes de 1.385,52 EUR ate Ago/2027)")
+        {"Dia": "20-
