@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import time
 from datetime import datetime, date
 
 st.set_page_config(page_title="Gestao Financeira", page_icon="⚖️", layout="wide")
@@ -11,11 +12,12 @@ WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyzreCAbgrp9r7WJKtpTOz5__
 
 def carregar_dados():
     try:
-        df = pd.read_csv(CSV_URL)
+        url_fresca = f"{CSV_URL}&t={int(time.time())}"
+        df = pd.read_csv(url_fresca)
         for col in ["data", "entidade", "categoria", "descricao", "valor"]:
             if col not in df.columns:
                 df[col] = ""
-        df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
+        df["valor"] = pd.to_numeric(df["valor"].astype(str).str.replace(",", "."), errors="coerce").fillna(0.0)
         return df
     except Exception:
         return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
@@ -40,12 +42,9 @@ else:
 t1, t2, t3, t4 = st.tabs(["Registo Diario", "Orcamento & Entradas", "Cronograma", "Passivos"])
 
 with t1:
-    st.subheader(f"Tetos do Ciclo em Vigor (Desde {inicio_ciclo.strftime('%d/%m/%Y')})")
-    if not df_ciclo.empty:
-        gasto_pes = df_ciclo[df_ciclo["entidade"] == "Pessoal Familiar"]["valor"].sum()
-        gasto_emp = df_ciclo[df_ciclo["entidade"] == "Empresa (ElementarPrivilege)"]["valor"].sum()
-    else:
-        gasto_pes, gasto_emp = 0.0, 0.0
+    st.subheader(f"Tetos do Ciclo (Desde {inicio_ciclo.strftime('%d/%m/%Y')})")
+    gasto_pes = df_ciclo[df_ciclo["entidade"] == "Pessoal Familiar"]["valor"].sum() if not df_ciclo.empty else 0.0
+    gasto_emp = df_ciclo[df_ciclo["entidade"] == "Empresa (ElementarPrivilege)"]["valor"].sum() if not df_ciclo.empty else 0.0
 
     c_t1, c_t2 = st.columns(2)
     with c_t1:
@@ -53,47 +52,59 @@ with t1:
         st.metric("Saldo Restante Pessoal", f"{(t_pes - gasto_pes):.2f} EUR")
         st.progress(min(1.0, max(0.0, gasto_pes / t_pes)) if t_pes > 0 else 1.0)
     with c_t2:
-        t_emp = st.number_input("Teto Empresa (EUR):", value=660.0, step=50.0)
+        t_emp = st.number_input("Teto Operacional Empresa (Via Verde/Comb./Ref.) (EUR):", value=660.0, step=50.0)
         st.metric("Saldo Restante Empresa", f"{(t_emp - gasto_emp):.2f} EUR")
         st.progress(min(1.0, max(0.0, gasto_emp / t_emp)) if t_emp > 0 else 1.0)
 
     st.divider()
     st.subheader("Lancar Despesa")
-    entidade = st.radio("Conta:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
-    cats = [
-        "Supermercado & Alimentacao", "Takeaway & Uber Eats", "Restaurantes",
-        "Criancas", "Empregada Domestica", "Lazer/Livros/Garrafeira", "Outro"
-    ] if entidade == "Pessoal Familiar" else [
-        "Combustivel / Portagens", "Refeicao Servico", "Empregada Empresa",
-        "Impostos Empresa", "Material Clinico", "Software", "Outro"
-    ]
+    
+    # Formulário blindado contra cliques acidentais e recarregamentos prematuros
+    with st.form("form_despesa", clear_on_submit=True):
+        entidade = st.radio("Conta:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
+        
+        cats = [
+            "Supermercado & Alimentacao", "Takeaway & Uber Eats", "Restaurantes",
+            "Criancas", "Empregada Domestica", "Lazer/Livros/Garrafeira", "Outro"
+        ] if entidade == "Pessoal Familiar" else [
+            "Via Verde / Combustivel (Empresa)", "Refeicao Servico", "Empregada Empresa",
+            "Impostos Empresa", "Material Clinico", "Software", "Outro"
+        ]
 
-    c1, c2, c3 = st.columns([2, 3, 2])
-    data_mov = c1.date_input("Data:", datetime.today())
-    cat_mov = c2.selectbox("Categoria:", cats)
-    valor_mov = c3.number_input("Valor (EUR):", min_value=0.01, step=1.0, format="%.2f")
-    desc_mov = st.text_input("Descricao:")
+        c1, c2, c3 = st.columns([2, 3, 2])
+        data_mov = c1.date_input("Data:", datetime.today())
+        cat_mov = c2.selectbox("Categoria:", cats)
+        valor_mov = c3.number_input("Valor (EUR):", min_value=0.01, step=1.0, format="%.2f")
+        desc_mov = st.text_input("Descricao:")
 
-    if st.button("Gravar Despesa", use_container_width=True):
+        submeter = st.form_submit_button("Gravar Despesa no Google Drive", use_container_width=True)
+
+    if submeter:
         params = {
             "data": data_mov.strftime("%Y-%m-%d"),
             "entidade": entidade,
             "categoria": cat_mov,
             "descricao": desc_mov if desc_mov else cat_mov,
-            "valor": float(valor_mov)
+            "valor": str(float(valor_mov))
         }
-        try:
-            r = requests.get(WEBHOOK_URL, params=params, timeout=10)
-            if r.status_code == 200:
-                st.success("Guardado na Google Sheet com sucesso!")
-                st.rerun()
-            else:
-                st.error(f"Erro ao enviar: Codigo {r.status_code}")
-        except Exception as e:
-            st.error(f"Erro na ligacao: {e}")
+        with st.spinner("A gravar na Google Sheet..."):
+            try:
+                r = requests.get(WEBHOOK_URL, params=params, timeout=15)
+                if r.status_code == 200:
+                    st.success(f"Gravado com sucesso no Google Drive: {float(valor_mov):.2f} EUR em {cat_mov}!")
+                else:
+                    st.error(f"Erro ao gravar (Codigo {r.status_code}): {r.text}")
+            except Exception as ex:
+                st.error(f"Falha na ligacao ao Google Sheets: {ex}")
 
     st.divider()
-    st.subheader("Historico de Gastos Registados")
+    col_hist, col_refresh = st.columns([4, 1])
+    with col_hist:
+        st.subheader("Historico de Gastos Registados")
+    with col_refresh:
+        if st.button("Atualizar Lista"):
+            st.rerun()
+
     if not df_gastos.empty:
         st.dataframe(df_gastos.sort_values(by="data", ascending=False), use_container_width=True)
     else:
@@ -124,7 +135,8 @@ with t2:
     st.divider()
     st.subheader("2. Balanco Operacional do Mes")
     col_b1, col_b2 = st.columns(2)
-    fixos_emp = 6785.15
+    
+    fixos_emp = 5734.59
     fixos_pes = 6117.08
     
     saldo_emp_livre = tot_receita_emp - fixos_emp - reserva_irc
@@ -132,8 +144,9 @@ with t2:
     
     with col_b1:
         st.metric("Total Entradas Empresa", f"{tot_receita_emp:,.2f} EUR")
-        st.write(f"- Fixos Empresa (com Obra): **{fixos_emp:,.2f} EUR**")
-        st.write(f"- Reserva IRC: **{reserva_irc:,.2f} EUR**")
+        st.write(f"- Fixos Empresa (Obra + Salarios + Carro + BPI): **{fixos_emp:,.2f} EUR**")
+        st.caption("*(Cheques-creche de 1.050,56 EUR suspensos/isentos ate Jan)*")
+        st.write(f"- Reserva IRC ({perc_irc}%): **{reserva_irc:,.2f} EUR**")
         st.metric("Margem Livre Empresa", f"{saldo_emp_livre:,.2f} EUR")
         
     with col_b2:
@@ -145,21 +158,21 @@ with t2:
 with t3:
     st.subheader("Cronograma Dinamico de Tesouraria (Dia 20 ao Dia 19)")
     crono_data = [
-        {"Dia": "18-19", "Tipo": "Entrada", "Conta": "Empresa", "Descricao": "Faturacao Hospital da Luz / Privado", "Valor": f"+{rec_luz:,.2f} EUR"},
+        {"Dia": "18-19", "Tipo": "Entrada", "Conta": "Empresa (Revolut)", "Descricao": "Faturacao Hospital da Luz / Privado", "Valor": f"+{rec_luz:,.2f} EUR"},
         {"Dia": "20-23", "Tipo": "Entrada", "Conta": "Pessoal", "Descricao": "Vencimento Hospital (Fixo + SIGIC)", "Valor": f"+{tot_receita_pes:,.2f} EUR"},
         {"Dia": "24", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Reserva Fiscal IRS (Ano Seguinte)", "Valor": f"-{prov_irs:,.2f} EUR"},
-        {"Dia": "30", "Tipo": "Entrada", "Conta": "Empresa", "Descricao": "Consultorio & Outras Clinicas", "Valor": f"+{rec_consultorio:,.2f} EUR"},
+        {"Dia": "30", "Tipo": "Entrada", "Conta": "Empresa (Revolut)", "Descricao": "Consultorio & Outras Clinicas", "Valor": f"+{rec_consultorio:,.2f} EUR"},
         {"Dia": "30", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Credito Habitacao (003 + 004)", "Valor": "-3.579,12 EUR"},
         {"Dia": "31", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Prestacao IRS (Plano Atual)", "Valor": "-1.385,52 EUR"},
-        {"Dia": "01", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Revolut Orcamento Variavel Familiar", "Valor": "-1.030,00 EUR"},
+        {"Dia": "01", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Revolut Orcamento Variavel Familiar", "Valor": "-630,00 EUR"},
         {"Dia": "01", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Empregada Empresa (com Duodecimos)", "Valor": "-1.040,00 EUR"},
         {"Dia": "01", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "TSU Seguranca Social", "Valor": "-620,29 EUR"},
         {"Dia": "04", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Empregada Pessoal", "Valor": "-646,50 EUR"},
         {"Dia": "05", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Carro VW Bank", "Valor": "-618,79 EUR"},
-        {"Dia": "08", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Cheques-Creche", "Valor": "-1.050,56 EUR"},
+        {"Dia": "08", "Tipo": "Isento", "Conta": "Empresa", "Descricao": "Cheques-Creche (Ja Pagos ate Jan)", "Valor": "0,00 EUR"},
         {"Dia": "10", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Credito Equipamento Medico", "Valor": "-1.120,00 EUR"},
         {"Dia": "15", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Tranche Empreiteiro Obra", "Valor": "-1.437,00 EUR"},
-        {"Dia": "16", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Reserva Fiscal IRC (Ano Seguinte)", "Valor": f"-{reserva_irc:,.2f} EUR"}
+        {"Dia": "16", "Tipo": "Saida", "Conta": "Empresa (Revolut Pocket)", "Descricao": "Reserva Fiscal IRC (Ano Seguinte)", "Valor": f"-{reserva_irc:,.2f} EUR"}
     ]
     st.dataframe(pd.DataFrame(crono_data), use_container_width=True)
 
