@@ -59,23 +59,27 @@ with t1:
     st.divider()
     st.subheader("Lancar Despesa")
     
-    # Formulário blindado contra cliques acidentais e recarregamentos prematuros
-    with st.form("form_despesa", clear_on_submit=True):
-        entidade = st.radio("Conta:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
-        
+    # 1. A seleção da conta fica FORA do form para mudar as categorias de imediato
+    entidade = st.radio("Conta a debitar:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
+    
+    if entidade == "Pessoal Familiar":
         cats = [
             "Supermercado & Alimentacao", "Takeaway & Uber Eats", "Restaurantes",
             "Criancas", "Empregada Domestica", "Lazer/Livros/Garrafeira", "Outro"
-        ] if entidade == "Pessoal Familiar" else [
+        ]
+    else:
+        cats = [
             "Via Verde / Combustivel (Empresa)", "Refeicao Servico", "Empregada Empresa",
             "Impostos Empresa", "Material Clinico", "Software", "Outro"
         ]
 
+    # 2. O formulário recebe a lista de categorias já adaptada à conta escolhida
+    with st.form("form_despesa", clear_on_submit=True):
         c1, c2, c3 = st.columns([2, 3, 2])
         data_mov = c1.date_input("Data:", datetime.today())
         cat_mov = c2.selectbox("Categoria:", cats)
         valor_mov = c3.number_input("Valor (EUR):", min_value=0.01, step=1.0, format="%.2f")
-        desc_mov = st.text_input("Descricao:")
+        desc_mov = st.text_input("Descricao (opcional):")
 
         submeter = st.form_submit_button("Gravar Despesa no Google Drive", use_container_width=True)
 
@@ -91,7 +95,7 @@ with t1:
             try:
                 r = requests.get(WEBHOOK_URL, params=params, timeout=15)
                 if r.status_code == 200:
-                    st.success(f"Gravado com sucesso no Google Drive: {float(valor_mov):.2f} EUR em {cat_mov}!")
+                    st.success(f"Gravado com sucesso no Google Drive: {float(valor_mov):.2f} EUR em {cat_mov} ({entidade})!")
                 else:
                     st.error(f"Erro ao gravar (Codigo {r.status_code}): {r.text}")
             except Exception as ex:
