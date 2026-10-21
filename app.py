@@ -48,7 +48,8 @@ with t1:
 
     c_t1, c_t2 = st.columns(2)
     with c_t1:
-        t_pes = st.number_input("Teto Pessoal (EUR):", value=250.0, step=50.0)
+        # Teto pessoal definido por defeito para 850.00 EUR
+        t_pes = st.number_input("Teto Pessoal Mensal (EUR):", value=850.0, step=50.0)
         st.metric("Saldo Restante Pessoal", f"{(t_pes - gasto_pes):.2f} EUR")
         st.progress(min(1.0, max(0.0, gasto_pes / t_pes)) if t_pes > 0 else 1.0)
     with c_t2:
@@ -59,7 +60,7 @@ with t1:
     st.divider()
     st.subheader("Lancar Despesa")
     
-    # 1. A seleção da conta fica FORA do form para mudar as categorias de imediato
+    # Seleção de conta fora do form para atualizar as categorias de imediato
     entidade = st.radio("Conta a debitar:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
     
     if entidade == "Pessoal Familiar":
@@ -73,7 +74,6 @@ with t1:
             "Impostos Empresa", "Material Clinico", "Software", "Outro"
         ]
 
-    # 2. O formulário recebe a lista de categorias já adaptada à conta escolhida
     with st.form("form_despesa", clear_on_submit=True):
         c1, c2, c3 = st.columns([2, 3, 2])
         data_mov = c1.date_input("Data:", datetime.today())
