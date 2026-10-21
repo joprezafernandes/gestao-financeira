@@ -8,7 +8,7 @@ st.set_page_config(page_title="Gestao Financeira", page_icon="⚖️", layout="w
 st.title("Gestao Financeira")
 
 CSV_URL = "https://docs.google.com/spreadsheets/d/1Vb2N6bwiU3XTCGTNGXgocYgnTBePxnsoUOfjrPy7RsU/export?format=csv"
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyzreCAbgrp9r7WJKtpTOz5__JplbY9TB0C0qYRfB0E785dpeBdDT21cXBxCrk5huN14Q/exec"
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbygTwbK_7qFXX19qf1hDxXe1wB5bIgH5AYOtdlwSt-1G_LjcYHpsA1dT-e0fPqgC7g84A/exec"
 
 def carregar_dados():
     try:
