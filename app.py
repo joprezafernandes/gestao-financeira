@@ -34,6 +34,20 @@ else:
 
 str_inicio_ciclo = inicio_ciclo.strftime("%Y-%m-%d")
 
+# Plano IVA 3T 2026 (Id. 2026.429069)
+if inicio_ciclo == date(2026, 11, 20):
+    iva_3t_valor = 2672.27
+    iva_3t_label = "Prestacao 1/2 IVA 3T (Limite 25/11)"
+    iva_3t_dia = "25"
+elif inicio_ciclo == date(2026, 12, 20):
+    iva_3t_valor = 2672.26
+    iva_3t_label = "Prestacao 2/2 IVA 3T (Limite 28/12)"
+    iva_3t_dia = "28"
+else:
+    iva_3t_valor = 0.0
+    iva_3t_label = ""
+    iva_3t_dia = ""
+
 if not df_gastos.empty and "data" in df_gastos.columns:
     df_ciclo = df_gastos[df_gastos["data"] >= str_inicio_ciclo]
 else:
@@ -48,8 +62,8 @@ with t1:
 
     c_t1, c_t2 = st.columns(2)
     with c_t1:
-        # Teto pessoal definido por defeito para 850.00 EUR
-        t_pes = st.number_input("Teto Pessoal Mensal (EUR):", value=850.0, step=50.0)
+        # 620 EUR Cartao Sara + 220 EUR Cartao Refeicao = 840 EUR
+        t_pes = st.number_input("Teto Pessoal Mensal (620 Sara + 220 Ref.) (EUR):", value=840.0, step=20.0)
         st.metric("Saldo Restante Pessoal", f"{(t_pes - gasto_pes):.2f} EUR")
         st.progress(min(1.0, max(0.0, gasto_pes / t_pes)) if t_pes > 0 else 1.0)
     with c_t2:
@@ -60,7 +74,6 @@ with t1:
     st.divider()
     st.subheader("Lancar Despesa")
     
-    # Seleção de conta fora do form para atualizar as categorias de imediato
     entidade = st.radio("Conta a debitar:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
     
     if entidade == "Pessoal Familiar":
@@ -119,7 +132,7 @@ with t2:
     c_in1, c_in2 = st.columns(2)
     with c_in1:
         st.markdown("#### Empresa (ElementarPrivilege)")
-        rec_luz = st.number_input("Faturacao Hospital da Luz / Privado (Dia 18-19):", value=7800.0, step=100.0)
+        rec_luz = st.number_input("Faturacao Hospital da Luz / Privado (Dia 18-19):", value=7400.0, step=100.0)
         rec_consultorio = st.number_input("Entrada Consultorio & Outras Clinicas (Dia 30):", value=0.0, step=100.0)
         tot_receita_emp = rec_luz + rec_consultorio
         
@@ -129,58 +142,65 @@ with t2:
 
     with c_in2:
         st.markdown("#### Pessoal Familiar (Hospital Publico)")
-        rec_pub_fixo = st.number_input("Vencimento Fixo Hospital Liquido:", value=3000.0, step=50.0)
-        rec_pub_var = st.number_input("Producao Adicional / SIGIC Liquido:", value=1500.0, step=100.0)
-        tot_receita_pes = rec_pub_fixo + rec_pub_var
+        tot_receita_pes = st.number_input("Vencimento Hospital Liquido (Normal + Adicional/SIGIC):", value=4500.0, step=100.0)
         
-        prov_irs = st.number_input("Reserva Fiscal IRS a cativar a dia 24:", value=250.0, step=25.0)
-        st.info(f"Reserva IRS a cativar a dia 24: **{prov_irs:.2f} EUR**")
+        prov_irs = st.number_input("Reserva Fiscal IRS 2027 (Revolut Pocket) a dia 24:", value=250.0, step=25.0)
+        st.info(f"Reserva IRS 2027 a transferir para Revolut Pocket: **{prov_irs:.2f} EUR**")
 
     st.divider()
     st.subheader("2. Balanco Operacional do Mes")
     col_b1, col_b2 = st.columns(2)
     
     fixos_emp = 5734.59
-    fixos_pes = 6117.08
+    fixos_pes = 6107.08  # Ajustado -10 EUR pela passagem de 630 EUR para 620 EUR no cartao da Sara
     
-    saldo_emp_livre = tot_receita_emp - fixos_emp - reserva_irc
+    saldo_emp_livre = tot_receita_emp - fixos_emp - reserva_irc - iva_3t_valor
     saldo_pes_livre = tot_receita_pes - fixos_pes - prov_irs
     
     with col_b1:
         st.metric("Total Entradas Empresa", f"{tot_receita_emp:,.2f} EUR")
         st.write(f"- Fixos Empresa (Obra + Salarios + Carro + BPI): **{fixos_emp:,.2f} EUR**")
+        if iva_3t_valor > 0:
+            st.write(f"- {iva_3t_label}: **{iva_3t_valor:,.2f} EUR**")
         st.caption("*(Cheques-creche de 1.050,56 EUR suspensos/isentos ate Jan)*")
         st.write(f"- Reserva IRC ({perc_irc}%): **{reserva_irc:,.2f} EUR**")
         st.metric("Margem Livre Empresa", f"{saldo_emp_livre:,.2f} EUR")
         
     with col_b2:
         st.metric("Total Entradas Pessoal", f"{tot_receita_pes:,.2f} EUR")
-        st.write(f"- Fixos Pessoais (CH + Divida IRS): **{fixos_pes:,.2f} EUR**")
-        st.write(f"- Reserva IRS: **{prov_irs:,.2f} EUR**")
+        st.write(f"- Fixos Pessoais (CH + Divida IRS + 620 Cartao Sara): **{fixos_pes:,.2f} EUR**")
+        st.write(f"- Reserva IRS 2027 (Revolut Pocket): **{prov_irs:,.2f} EUR**")
         st.metric("Margem Livre Pessoal", f"{saldo_pes_livre:,.2f} EUR")
 
 with t3:
     st.subheader("Cronograma Dinamico de Tesouraria (Dia 20 ao Dia 19)")
     crono_data = [
-        {"Dia": "18-19", "Tipo": "Entrada", "Conta": "Empresa (Revolut)", "Descricao": "Faturacao Hospital da Luz / Privado", "Valor": f"+{rec_luz:,.2f} EUR"},
-        {"Dia": "20-23", "Tipo": "Entrada", "Conta": "Pessoal", "Descricao": "Vencimento Hospital (Fixo + SIGIC)", "Valor": f"+{tot_receita_pes:,.2f} EUR"},
-        {"Dia": "24", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Reserva Fiscal IRS (Ano Seguinte)", "Valor": f"-{prov_irs:,.2f} EUR"},
-        {"Dia": "30", "Tipo": "Entrada", "Conta": "Empresa (Revolut)", "Descricao": "Consultorio & Outras Clinicas", "Valor": f"+{rec_consultorio:,.2f} EUR"},
-        {"Dia": "30", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Credito Habitacao (003 + 004)", "Valor": "-3.579,12 EUR"},
-        {"Dia": "31", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Prestacao IRS (Plano Atual)", "Valor": "-1.385,52 EUR"},
-        {"Dia": "01", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Revolut Orcamento Variavel Familiar", "Valor": "-630,00 EUR"},
-        {"Dia": "01", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Empregada Empresa (com Duodecimos)", "Valor": "-1.040,00 EUR"},
-        {"Dia": "01", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "TSU Seguranca Social", "Valor": "-620,29 EUR"},
-        {"Dia": "04", "Tipo": "Saida", "Conta": "Pessoal", "Descricao": "Empregada Pessoal", "Valor": "-646,50 EUR"},
-        {"Dia": "05", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Carro VW Bank", "Valor": "-618,79 EUR"},
-        {"Dia": "08", "Tipo": "Isento", "Conta": "Empresa", "Descricao": "Cheques-Creche (Ja Pagos ate Jan)", "Valor": "0,00 EUR"},
-        {"Dia": "10", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Credito Equipamento Medico", "Valor": "-1.120,00 EUR"},
-        {"Dia": "15", "Tipo": "Saida", "Conta": "Empresa", "Descricao": "Tranche Empreiteiro Obra", "Valor": "-1.437,00 EUR"},
-        {"Dia": "16", "Tipo": "Saida", "Conta": "Empresa (Revolut Pocket)", "Descricao": "Reserva Fiscal IRC (Ano Seguinte)", "Valor": f"-{reserva_irc:,.2f} EUR"}
+        {"Dia": "18-19", "Tipo": "Entrada", "Conta": "Empresa (BPI)", "Descricao": "Faturacao Hospital da Luz / Privado", "Valor": f"+{rec_luz:,.2f} EUR"},
+        {"Dia": "20-23", "Tipo": "Entrada", "Conta": "Pessoal (BPI)", "Descricao": "Vencimento Hospital (Normal + Adicional/SIGIC)", "Valor": f"+{tot_receita_pes:,.2f} EUR"},
+        {"Dia": "24", "Tipo": "Saida", "Conta": "Pessoal -> Revolut", "Descricao": "Poupanca IRS 2027 & Ferias (Revolut Pockets)", "Valor": f"-{prov_irs:,.2f} EUR"},
     ]
+    if iva_3t_valor > 0:
+        crono_data.append({"Dia": iva_3t_dia, "Tipo": "Saida", "Conta": "Empresa (AT)", "Descricao": iva_3t_label, "Valor": f"-{iva_3t_valor:,.2f} EUR"})
+    
+    crono_data.extend([
+        {"Dia": "30", "Tipo": "Entrada", "Conta": "Empresa (BPI)", "Descricao": "Consultorio & Outras Clinicas", "Valor": f"+{rec_consultorio:,.2f} EUR"},
+        {"Dia": "30", "Tipo": "Saida", "Conta": "Pessoal (BPI)", "Descricao": "Credito Habitacao (003 + 004)", "Valor": "-3.579,12 EUR"},
+        {"Dia": "31", "Tipo": "Saida", "Conta": "Pessoal (BPI)", "Descricao": "Prestacao IRS (Plano Atual)", "Valor": "-1.385,52 EUR"},
+        {"Dia": "01", "Tipo": "Saida", "Conta": "Pessoal -> Sara", "Descricao": "Transferencia Cartao Sara (Orcamento Familiar)", "Valor": "-620,00 EUR"},
+        {"Dia": "01", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "Empregada Empresa (com Duodecimos)", "Valor": "-1.040,00 EUR"},
+        {"Dia": "01", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "TSU Seguranca Social", "Valor": "-620,29 EUR"},
+        {"Dia": "04", "Tipo": "Saida", "Conta": "Pessoal (BPI)", "Descricao": "Empregada Pessoal", "Valor": "-646,50 EUR"},
+        {"Dia": "05", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "Carro VW Bank", "Valor": "-618,79 EUR"},
+        {"Dia": "08", "Tipo": "Isento", "Conta": "Empresa", "Descricao": "Cheques-Creche (Ja Pagos ate Jan)", "Valor": "0,00 EUR"},
+        {"Dia": "10", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "Credito Equipamento Medico", "Valor": "-1.120,00 EUR"},
+        {"Dia": "15", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "Tranche Empreiteiro Obra", "Valor": "-1.437,00 EUR"},
+        {"Dia": "16", "Tipo": "Saida", "Conta": "Empresa (Revolut Pocket)", "Descricao": "Reserva Fiscal IRC (Ano Seguinte)", "Valor": f"-{reserva_irc:,.2f} EUR"}
+    ])
     st.dataframe(pd.DataFrame(crono_data), use_container_width=True)
 
 with t4:
     st.subheader("Passivos Transitarios")
     st.write("Divida Obra: **8.622,00 EUR** (Termina em Mar/2027)")
     st.write("Divida IRS: **17.071,49 EUR** (Termina em Ago/2027)")
+    if iva_3t_valor > 0:
+        st.write("Plano Flexibilizacao IVA 3T 2026 (Id. 2026.429069): **5.344,53 EUR** (2 prestacoes: 2.672,27 EUR ate 25/11 e 2.672,26 EUR ate 28/12)")
