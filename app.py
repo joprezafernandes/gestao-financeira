@@ -42,25 +42,29 @@ ORIGENS_GANHOS_PESSOAL = [
     "Reembolso IRS / Outros Pessoais",
 ]
 
-# Tetos mensais por secção (valores base ajustáveis)
-TETOS_PESSOAL = {
-    "Supermercado & Alimentacao": 1000.0,
-    "Habitacao / Energia / Casa": 1400.0,
-    "Filhos & Educacao": 500.0,
-    "Saude & Suplementos": 250.0,
-    "Lazer/Livros/Garrafeira": 250.0,
-    "Outro": 200.0,
+# Teto global único para variáveis familiares (Cartão Refeição + Revolut Pessoal)
+TETO_GLOBAL_PESSOAL = 850.0
+
+CATEGORIAS_VARIAVEIS_PESSOAL = [
+    "Supermercado & Alimentacao",
+    "Filhos & Educacao",
+    "Saude & Suplementos",
+    "Lazer/Livros/Garrafeira",
+    "Outro",
+]
+
+CATEGORIAS_FIXAS_PESSOAL = ["Habitacao / Energia / Casa"]
+
+# Tetos variáveis empresa: 660 € (Revolut Business)
+TETOS_VARIAVEIS_EMPRESA = {
+    "Via Verde / Combustivel (Empresa)": 300.0,
+    "Refeicao Servico": 220.0,
+    "Equipamento / Informatica": 80.0,
+    "Formacao / Congressos": 40.0,
+    "Outro": 20.0,
 }
 
-TETOS_EMPRESA = {
-    "Refeicao Servico": 350.0,
-    "Via Verde / Combustivel (Empresa)": 450.0,
-    "Equipamento / Informatica": 500.0,
-    "Formacao / Congressos": 600.0,
-    "Contabilidade / Impostos": 1000.0,
-    "Reembolso Socio (Conta 268)": 1300.0,
-    "Outro": 300.0,
-}
+CATEGORIAS_FIXAS_EMPRESA = ["Contabilidade / Impostos", "Reembolso Socio (Conta 268)"]
 
 
 def parse_valor_pt(texto: str, default: float = 0.0) -> float:
@@ -138,21 +142,6 @@ def construir_quadro_tetos(df_subset: pd.DataFrame, tetos_dict: dict) -> pd.Data
                 "Estado": estado,
             }
         )
-    # Captura eventuais categorias extra que existam na folha fora do dicionário
-    if not df_subset.empty:
-        extras = [c for c in df_subset["categoria_str"].unique() if c not in tetos_dict]
-        for cat_ex in extras:
-            gasto_ex = float(df_subset.loc[df_subset["categoria_str"] == cat_ex, "valor"].sum())
-            linhas.append(
-                {
-                    "Secção / Categoria": cat_ex,
-                    "Gasto (€)": gasto_ex,
-                    "Teto (€)": 0.0,
-                    "Disponível (€)": -gasto_ex,
-                    "Uso (%)": 100.0,
-                    "Estado": "⚪ Sem Teto",
-                }
-            )
     return pd.DataFrame(linhas)
 
 
@@ -179,7 +168,7 @@ with tab_registo:
         if tipo_movimento == "Entrada / Vencimento Pessoal":
             categorias = [f"Ganho Pessoal - {origem}" for origem in ORIGENS_GANHOS_PESSOAL]
         else:
-            categorias = list(TETOS_PESSOAL.keys())
+            categorias = CATEGORIAS_VARIAVEIS_PESSOAL + CATEGORIAS_FIXAS_PESSOAL
     else:
         tipo_movimento = st.radio(
             "Tipo",
@@ -189,7 +178,7 @@ with tab_registo:
         if tipo_movimento == "Entrada / Ganho Clínica":
             categorias = [f"Ganho - {origem}" for origem in ORIGENS_GANHOS_EMPRESA]
         else:
-            categorias = list(TETOS_EMPRESA.keys())
+            categorias = list(TETOS_VARIAVEIS_EMPRESA.keys()) + CATEGORIAS_FIXAS_EMPRESA
 
     data_mov = st.date_input("Data", value=date.today())
     is_entrada = tipo_movimento.startswith("Entrada")
@@ -220,7 +209,7 @@ with tab_registo:
                 st.error(msg)
 
 # ------------------------------------------------------------------------------
-# ABA 2: MOVIMENTOS, TETOS POR SECÇÃO & TOTAIS
+# ABA 2: MOVIMENTOS, TETOS & TOTAIS
 # ------------------------------------------------------------------------------
 with tab_movimentos:
     if st.button("🔄 Atualizar", use_container_width=True):
@@ -254,27 +243,52 @@ with tab_movimentos:
         df["categoria_str"].str.startswith("Ganho - ")
     ) if not df.empty else pd.Series(dtype=bool)
     mask_desp_emp = (df["entidade"] == "Empresa (ElementarPrivilege)") & (~mask_ganhos_emp) if not df.empty else pd.Series(dtype=bool)
+    mask_var_emp = mask_desp_emp & (~df["categoria_str"].isin(CATEGORIAS_FIXAS_EMPRESA)) if not df.empty else pd.Series(dtype=bool)
 
     mask_ganhos_pessoal = (df["entidade"] == "Pessoal Familiar") & (
         df["categoria_str"].str.startswith("Ganho Pessoal - ")
     ) if not df.empty else pd.Series(dtype=bool)
     mask_desp_pessoal = (df["entidade"] == "Pessoal Familiar") & (~mask_ganhos_pessoal) if not df.empty else pd.Series(dtype=bool)
+    mask_var_pessoal = mask_desp_pessoal & (~df["categoria_str"].isin(CATEGORIAS_FIXAS_PESSOAL)) if not df.empty else pd.Series(dtype=bool)
 
     total_ganhos_emp = float(df.loc[mask_ganhos_emp, "valor"].sum()) if not df.empty else 0.0
     total_desp_emp = float(df.loc[mask_desp_emp, "valor"].sum()) if not df.empty else 0.0
+    total_var_emp = float(df.loc[mask_var_emp, "valor"].sum()) if not df.empty else 0.0
+
     total_ganhos_pessoal = float(df.loc[mask_ganhos_pessoal, "valor"].sum()) if not df.empty else 0.0
     total_desp_pessoal = float(df.loc[mask_desp_pessoal, "valor"].sum()) if not df.empty else 0.0
+    total_var_pessoal = float(df.loc[mask_var_pessoal, "valor"].sum()) if not df.empty else 0.0
 
-    # --- RESUMO E TETOS: PESSOAL FAMILIAR ---
-    st.markdown("### 🏠 Pessoal Familiar — Resumo e Tetos por Secção")
-    p1, p2, p3 = st.columns(3)
+    # --- RESUMO E TETO ÚNICO: PESSOAL FAMILIAR (850,00 €) ---
+    st.markdown("### 🏠 Pessoal Familiar — Cartão Refeição & Revolut Pessoal")
+    p1, p2, p3, p4 = st.columns(4)
     p1.metric("Vencimento / Entradas", f"{total_ganhos_pessoal:,.2f} €")
-    p2.metric("Gasto Total Pessoal", f"{total_desp_pessoal:,.2f} €", delta=f"Teto: {sum(TETOS_PESSOAL.values()):,.0f} €", delta_color="off")
-    p3.metric("Saldo Líquido Pessoal", f"{(total_ganhos_pessoal - total_desp_pessoal):,.2f} €")
+    p2.metric(
+        "Variáveis Sara (Teto 850 €)",
+        f"{total_var_pessoal:,.2f} €",
+        delta=f"Disp: {(TETO_GLOBAL_PESSOAL - total_var_pessoal):,.2f} €",
+    )
+    p3.metric("Despesa Total Pessoal", f"{total_desp_pessoal:,.2f} €")
+    p4.metric("Saldo Líquido Pessoal", f"{(total_ganhos_pessoal - total_desp_pessoal):,.2f} €")
 
-    df_tetos_pessoal = construir_quadro_tetos(df[mask_desp_pessoal] if not df.empty else df, TETOS_PESSOAL)
+    pct_pessoal = min(100.0, round((total_var_pessoal / TETO_GLOBAL_PESSOAL) * 100, 1))
+    disp_pessoal = TETO_GLOBAL_PESSOAL - total_var_pessoal
+    estado_pessoal = "🔴 Excedido" if disp_pessoal < 0 else ("🟠 >80%" if pct_pessoal >= 80 else "🟢 OK")
+
+    df_teto_unico_pessoal = pd.DataFrame(
+        [
+            {
+                "Plafond": "Gastos Variáveis Sara (Cartão Refeição + Revolut)",
+                "Gasto (€)": total_var_pessoal,
+                "Teto (€)": TETO_GLOBAL_PESSOAL,
+                "Disponível (€)": disp_pessoal,
+                "Uso (%)": pct_pessoal,
+                "Estado": estado_pessoal,
+            }
+        ]
+    )
     st.dataframe(
-        df_tetos_pessoal,
+        df_teto_unico_pessoal,
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -287,12 +301,13 @@ with tab_movimentos:
 
     st.divider()
 
-    # --- RESUMO E TETOS: EMPRESA ELEMENTARPRIVILEGE ---
-    st.markdown("### 🏢 ElementarPrivilege — Resumo, Clínicas e Tetos")
-    e1, e2, e3 = st.columns(3)
+    # --- RESUMO E TETOS: EMPRESA ELEMENTARPRIVILEGE (660,00 €) ---
+    st.markdown("### 🏢 ElementarPrivilege — Clínicas & Revolut Business (Teto 660,00 €)")
+    e1, e2, e3, e4 = st.columns(4)
     e1.metric("Entradas Clínicas", f"{total_ganhos_emp:,.2f} €")
-    e2.metric("Saídas Empresa", f"{total_desp_emp:,.2f} €", delta=f"Teto: {sum(TETOS_EMPRESA.values()):,.0f} €", delta_color="off")
-    e3.metric("Saldo Líquido Empresa", f"{(total_ganhos_emp - total_desp_emp):,.2f} €")
+    e2.metric("Variáveis Revolut (Teto 660 €)", f"{total_var_emp:,.2f} €", delta=f"Disp: {(660.0 - total_var_emp):,.2f} €")
+    e3.metric("Saídas Totais Empresa", f"{total_desp_emp:,.2f} €")
+    e4.metric("Saldo Líquido Empresa", f"{(total_ganhos_emp - total_desp_emp):,.2f} €")
 
     st.markdown("#### 🏥 Entradas por Clínica")
     resumo_clinicas = []
@@ -308,8 +323,8 @@ with tab_movimentos:
         column_config={"Total (€)": st.column_config.NumberColumn(format="%.2f €")},
     )
 
-    st.markdown("#### 📊 Encargos Empresa por Secção vs. Teto")
-    df_tetos_emp = construir_quadro_tetos(df[mask_desp_emp] if not df.empty else df, TETOS_EMPRESA)
+    st.markdown("#### 💳 Gastos Variáveis Revolut Business vs. Teto (660,00 €)")
+    df_tetos_emp = construir_quadro_tetos(df[mask_var_emp] if not df.empty else df, TETOS_VARIAVEIS_EMPRESA)
     st.dataframe(
         df_tetos_emp,
         use_container_width=True,
@@ -357,16 +372,17 @@ with tab_planeamento:
             f"{entradas_pessoal_ciclo:.2f}".replace(".", ",") if entradas_pessoal_ciclo > 0 else "5600"
         )
         sns_str = st.text_input("Vencimento / Entradas Pessoais (€)", value=default_sns_str, key="plan_sns")
-        casa_str = st.text_input("Despesas Fixas & Casa (€)", value="3400", key="plan_casa")
+        casa_str = st.text_input("Despesas Fixas & Casa (€)", value="2550", key="plan_casa")
 
         liquido_sns = max(0.0, parse_valor_pt(sns_str, default=5600.0))
-        despesas_casa = max(0.0, parse_valor_pt(casa_str, default=3400.0))
-        margem_livre = liquido_sns - despesas_casa - 500.0 - 450.0
+        despesas_casa = max(0.0, parse_valor_pt(casa_str, default=2550.0))
+        margem_livre = liquido_sns - despesas_casa - TETO_GLOBAL_PESSOAL - 500.0 - 450.0
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Pocket IRS 2027", "500,00 €/mês")
-        c2.metric("DCA MSCI World", "450,00 €/mês")
-        c3.metric("Margem Livre", f"{margem_livre:,.2f} €")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Plafond Variáveis Sara", "850,00 €/mês")
+        c2.metric("Pocket IRS 2027", "500,00 €/mês")
+        c3.metric("DCA MSCI World", "450,00 €/mês")
+        c4.metric("Margem Livre", f"{margem_livre:,.2f} €")
     else:
         entradas_ciclo_emp = 0.0
         if not df_raw.empty and "data_dt" in df_raw.columns:
@@ -380,19 +396,19 @@ with tab_planeamento:
 
         default_fat_str = f"{entradas_ciclo_emp:.2f}".replace(".", ",") if entradas_ciclo_emp > 0 else "11750"
         fat_str = st.text_input("Entradas do Ciclo (€)", value=default_fat_str, key="plan_fat")
-        fixos_str = st.text_input("Encargos Fixos (€)", value="3200", key="plan_fixos")
+        fixos_str = st.text_input("Encargos Fixos Empresa (€)", value="2540", key="plan_fixos")
 
         faturacao_emp = max(0.0, parse_valor_pt(fat_str, default=11750.0))
-        fixos_emp = max(0.0, parse_valor_pt(fixos_str, default=3200.0))
+        fixos_emp = max(0.0, parse_valor_pt(fixos_str, default=2540.0))
 
         iva_extra = 2672.26 if (hoje.year == 2026 and hoje.month in [11, 12]) else 0.0
         provisao_hotel = 1000.0 if (hoje < date(2027, 4, 1)) else 0.0
-        reserva_irc = round(max(0.0, faturacao_emp - fixos_emp) * 0.17, 2)
-        excedente_emp = faturacao_emp - fixos_emp - reserva_irc - iva_extra - provisao_hotel
+        reserva_irc = round(max(0.0, faturacao_emp - fixos_emp - 660.0) * 0.17, 2)
+        excedente_emp = faturacao_emp - fixos_emp - 660.0 - reserva_irc - iva_extra - provisao_hotel
 
         c1, c2 = st.columns(2)
-        c1.metric("Reserva IRC (17%)", f"{reserva_irc:,.2f} €")
-        c2.metric("IVA Extraordinário", f"{iva_extra:,.2f} €")
+        c1.metric("Plafond Revolut Business", "660,00 €/mês")
+        c2.metric("Reserva IRC (17%)", f"{reserva_irc:,.2f} €")
         c3, c4 = st.columns(2)
-        c3.metric("Crédito Sócio (268)", "1.300,00 €")
+        c3.metric("IVA Extraordinário", f"{iva_extra:,.2f} €")
         c4.metric("Excedente Livre", f"{excedente_emp:,.2f} €")
