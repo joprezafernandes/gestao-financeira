@@ -53,6 +53,23 @@ def parse_valor_pt(texto: str, default: float = 0.0) -> float:
         return -1.0
 
 
+def obter_intervalo_ciclo(ref: date) -> tuple[date, date]:
+    """Devolve (inicio, fim) do ciclo financeiro de dia 21 a dia 20."""
+    if ref.day >= 21:
+        inicio = date(ref.year, ref.month, 21)
+        if ref.month == 12:
+            fim = date(ref.year + 1, 1, 20)
+        else:
+            fim = date(ref.year, ref.month + 1, 20)
+    else:
+        fim = date(ref.year, ref.month, 20)
+        if ref.month == 1:
+            inicio = date(ref.year - 1, 12, 21)
+        else:
+            inicio = date(ref.year, ref.month - 1, 21)
+    return inicio, fim
+
+
 def carregar_movimentos(url: str) -> pd.DataFrame:
     if not url or not url.startswith("http"):
         return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
@@ -95,7 +112,7 @@ tab_registo, tab_movimentos, tab_planeamento = st.tabs(
 )
 
 # ------------------------------------------------------------------------------
-# ABA 1: REGISTO DIRETO (ENTRADAS E DESPESAS PARA PESSOAL E EMPRESA)
+# ABA 1: REGISTO DIRETO
 # ------------------------------------------------------------------------------
 with tab_registo:
     entidade = st.radio(
@@ -169,15 +186,31 @@ with tab_registo:
                 st.error(msg)
 
 # ------------------------------------------------------------------------------
-# ABA 2: MOVIMENTOS E TOTAIS (EMPRESA + PESSOAL FAMILIAR)
+# ABA 2: MOVIMENTOS E TOTAIS (FILTRADO POR CICLO 21 -> 20 POR DEFEITO)
 # ------------------------------------------------------------------------------
 with tab_movimentos:
     if st.button("🔄 Atualizar", use_container_width=True):
         st.rerun()
 
-    df = carregar_movimentos(webhook_url)
+    df_raw = carregar_movimentos(webhook_url)
+    inicio_ciclo, fim_ciclo = obter_intervalo_ciclo(date.today())
 
-    if not df.empty:
+    periodo_opcao = st.radio(
+        "Período de Análise:",
+        [
+            f"Ciclo Atual ({inicio_ciclo.strftime('%d/%m')} a {fim_ciclo.strftime('%d/%m')})",
+            "Todo o Histórico Acumulado",
+        ],
+        horizontal=True,
+    )
+
+    if not df_raw.empty:
+        df_raw["data_dt"] = pd.to_datetime(df_raw["data"], errors="coerce").dt.date
+        if periodo_opcao.startswith("Ciclo Atual"):
+            df = df_raw[(df_raw["data_dt"] >= inicio_ciclo) & (df_raw["data_dt"] <= fim_ciclo)].copy()
+        else:
+            df = df_raw.copy()
+
         df["categoria_str"] = df["categoria"].astype(str)
 
         # Totais Empresa
@@ -225,8 +258,9 @@ with tab_movimentos:
         )
 
         st.divider()
-        st.markdown("#### 📋 Todos os Movimentos")
-        st.dataframe(df.drop(columns=["categoria_str"]).iloc[::-1], use_container_width=True, hide_index=True)
+        st.markdown("#### 📋 Movimentos do Período")
+        cols_mostrar = [c for c in ["data", "entidade", "categoria", "descricao", "valor"] if c in df.columns]
+        st.dataframe(df[cols_mostrar].iloc[::-1], use_container_width=True, hide_index=True)
     else:
         st.info("Sem movimentos carregados.")
 
@@ -235,6 +269,7 @@ with tab_movimentos:
 # ------------------------------------------------------------------------------
 with tab_planeamento:
     hoje = date.today()
+    inicio_ciclo_p, fim_ciclo_p = obter_intervalo_ciclo(hoje)
     esfera_plan = st.radio(
         "Esfera:",
         ["Pessoal Familiar", "Empresa (ElementarPrivilege)"],
@@ -242,18 +277,18 @@ with tab_planeamento:
     )
 
     if esfera_plan == "Pessoal Familiar":
-        entradas_pessoal_mes = 0.0
-        if not df.empty and "data" in df.columns:
-            prefixo_mes = hoje.strftime("%Y-%m")
-            mask_mes_p = (
-                (df["entidade"] == "Pessoal Familiar")
-                & (df["categoria"].astype(str).str.startswith("Ganho Pessoal - "))
-                & (df["data"].astype(str).str.startswith(prefixo_mes))
+        entradas_pessoal_ciclo = 0.0
+        if not df_raw.empty and "data_dt" in df_raw.columns:
+            mask_ciclo_p = (
+                (df_raw["entidade"] == "Pessoal Familiar")
+                & (df_raw["categoria"].astype(str).str.startswith("Ganho Pessoal - "))
+                & (df_raw["data_dt"] >= inicio_ciclo_p)
+                & (df_raw["data_dt"] <= fim_ciclo_p)
             )
-            entradas_pessoal_mes = float(df.loc[mask_mes_p, "valor"].sum())
+            entradas_pessoal_ciclo = float(df_raw.loc[mask_ciclo_p, "valor"].sum())
 
         default_sns_str = (
-            f"{entradas_pessoal_mes:.2f}".replace(".", ",") if entradas_pessoal_mes > 0 else "5600"
+            f"{entradas_pessoal_ciclo:.2f}".replace(".", ",") if entradas_pessoal_ciclo > 0 else "5600"
         )
         sns_str = st.text_input("Vencimento / Entradas Pessoais (€)", value=default_sns_str, key="plan_sns")
         casa_str = st.text_input("Despesas Fixas & Casa (€)", value="3400", key="plan_casa")
@@ -267,18 +302,18 @@ with tab_planeamento:
         c2.metric("DCA MSCI World", "450,00 €/mês")
         c3.metric("Margem Livre", f"{margem_livre:,.2f} €")
     else:
-        entradas_mes_atual = 0.0
-        if not df.empty and "data" in df.columns:
-            prefixo_mes = hoje.strftime("%Y-%m")
-            mask_mes = (
-                (df["entidade"] == "Empresa (ElementarPrivilege)")
-                & (df["categoria"].astype(str).str.startswith("Ganho - "))
-                & (df["data"].astype(str).str.startswith(prefixo_mes))
+        entradas_ciclo_emp = 0.0
+        if not df_raw.empty and "data_dt" in df_raw.columns:
+            mask_ciclo_e = (
+                (df_raw["entidade"] == "Empresa (ElementarPrivilege)")
+                & (df_raw["categoria"].astype(str).str.startswith("Ganho - "))
+                & (df_raw["data_dt"] >= inicio_ciclo_p)
+                & (df_raw["data_dt"] <= fim_ciclo_p)
             )
-            entradas_mes_atual = float(df.loc[mask_mes, "valor"].sum())
+            entradas_ciclo_emp = float(df_raw.loc[mask_ciclo_e, "valor"].sum())
 
-        default_fat_str = f"{entradas_mes_atual:.2f}".replace(".", ",") if entradas_mes_atual > 0 else "11750"
-        fat_str = st.text_input("Entradas Mensais (€)", value=default_fat_str, key="plan_fat")
+        default_fat_str = f"{entradas_ciclo_emp:.2f}".replace(".", ",") if entradas_ciclo_emp > 0 else "11750"
+        fat_str = st.text_input("Entradas do Ciclo (€)", value=default_fat_str, key="plan_fat")
         fixos_str = st.text_input("Encargos Fixos (€)", value="3200", key="plan_fixos")
 
         faturacao_emp = max(0.0, parse_valor_pt(fat_str, default=11750.0))
@@ -295,4 +330,3 @@ with tab_planeamento:
         c3, c4 = st.columns(2)
         c3.metric("Crédito Sócio (268)", "1.300,00 €")
         c4.metric("Excedente Livre", f"{excedente_emp:,.2f} €")
-        
