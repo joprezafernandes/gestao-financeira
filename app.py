@@ -5,32 +5,29 @@ import requests
 import streamlit as st
 
 # ==============================================================================
-# CONFIGURAÇÃO DA LIGAÇÃO AO GOOGLE SHEETS & APPS SCRIPT
+AKfycbygTwbK_7qFXX19qf1hDxXe1wB5bIgH5AYOtdlwSt-1G_LjcYHpsA1dT-e0fPqgC7g84A
 # ==============================================================================
-SHEET_ID = "1Vb2N6bwiU3XTCGTNGXgocYgnTBePxnsoUOfjrPy7RsU"
-SHEET_CSV_URL = (
-    f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
-)
-
-# Cola aqui o teu URL /exec (Extensões -> Apps Script -> Implementar -> Gerir implementações)
-WEBHOOK_URL = "COLE_AQUI_O_SEU_URL_EXEC_DO_APPS_SCRIPT"
+WEBHOOK_URL = "COLE_AQUI_O_SEU_URL_EXEC"
 
 st.set_page_config(
-    page_title="Gestão Financeira — Dia a Dia & Planeamento",
+    page_title="Gestão Financeira — Pessoal & ElementarPrivilege",
     page_icon="💶",
     layout="wide",
 )
 
 st.title("💶 Gestão Financeira — Pessoal Familiar & ElementarPrivilege")
 
-# ==============================================================================
-# FUNÇÕES DE LEITURA E ESCRITA (GOOGLE SHEETS)
-# ==============================================================================
+
 def carregar_movimentos() -> pd.DataFrame:
-    """Lê os movimentos diretamente do Google Sheets forçando atualização sem cache."""
-    url_sem_cache = f"{SHEET_CSV_URL}&t={int(time.time())}"
+    """Lê os movimentos diretamente via Apps Script (doGet) sem precisar de folha pública."""
+    if "COLE_AQUI" in WEBHOOK_URL or not WEBHOOK_URL.startswith("http"):
+        return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
     try:
-        df = pd.read_csv(url_sem_cache, decimal=",")
+        resp = requests.get(WEBHOOK_URL, params={"t": int(time.time())}, timeout=12)
+        resp.raise_for_status()
+        df = pd.DataFrame(resp.json())
+        if df.empty:
+            return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
         df.columns = [c.strip().lower() for c in df.columns]
         if "valor" in df.columns:
             df["valor"] = (
@@ -43,39 +40,39 @@ def carregar_movimentos() -> pd.DataFrame:
             df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
         return df
     except Exception as e:
-        st.warning(f"Não foi possível ler a folha em tempo real ({e}). Verifica se a partilha está ativa.")
+        st.warning(f"Ainda não foi possível ler a folha ({e}). Confirma se publicaste a Nova Versão no Apps Script.")
         return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
 
 
-def enviar_movimento_webhook(payload: dict) -> tuple[bool, str]:
-    """Envia novo registo para o Google Apps Script (doPost)."""
+def enviar_movimento(payload: dict) -> tuple[bool, str]:
+    """Grava um novo registo no Google Sheets via Apps Script (doPost)."""
     if "COLE_AQUI" in WEBHOOK_URL or not WEBHOOK_URL.startswith("http"):
-        return False, "Falta colar o URL /exec do Apps Script na variável WEBHOOK_URL no topo do app.py."
+        return False, "Falta colar o teu link /exec na linha 8 (WEBHOOK_URL)."
     try:
         resp = requests.post(WEBHOOK_URL, json=payload, timeout=12)
         if resp.status_code == 200:
-            return True, "Movimento registado com sucesso no Google Sheets!"
+            return True, "Gravado com sucesso no Google Sheets!"
         return False, f"Erro HTTP {resp.status_code}: {resp.text}"
     except Exception as e:
-        return False, f"Falha de ligação ao webhook: {e}"
+        return False, f"Erro de ligação: {e}"
 
 
 # ==============================================================================
-# NAVEGAÇÃO PRINCIPAL (3 SEPARADORES)
+# SEPARADORES DA APLICAÇÃO
 # ==============================================================================
 tab_registo, tab_movimentos, tab_planeamento = st.tabs(
     [
         "📝 Registo Rápido (Dia a Dia)",
-        "📒 Movimentos & Totais (Sheets)",
+        "📒 Movimentos & Totais",
         "🛡️ Planeamento & Blindagem",
     ]
 )
 
 # ------------------------------------------------------------------------------
-# SEPARADOR 1: REGISTO RÁPIDO DO DIA A DIA (SUBSTITUI A APP PERDIDA)
+# ABA 1: REGISTO DO DIA A DIA
 # ------------------------------------------------------------------------------
 with tab_registo:
-    st.subheader("Registar Nova Despesa / Movimento")
+    st.subheader("Novo Registo")
 
     entidade = st.radio(
         "Entidade",
@@ -83,7 +80,6 @@ with tab_registo:
         horizontal=True,
     )
 
-    # Categorias exatas da tua folha Gestao_Financeira_Movimentos
     if entidade == "Pessoal Familiar":
         categorias = [
             "Supermercado & Alimentacao",
@@ -114,12 +110,10 @@ with tab_registo:
             valor = st.number_input("Valor (€)", min_value=0.01, step=1.0, format="%.2f")
             descricao = st.text_input(
                 "Descrição / Estabelecimento",
-                placeholder="Ex.: Celeiro, Lidl, Via Verde Guimarães-Chaves, Almoço Luz...",
+                placeholder="Ex.: Celeiro, Lidl, Via Verde, Almoço Luz...",
             )
 
-        submetido = st.form_submit_button("✅ Gravar no Google Sheets", use_container_width=True)
-
-        if submetido:
+        if st.form_submit_button("✅ Gravar Movimento", use_container_width=True):
             desc_final = descricao.strip() if descricao.strip() else categoria
             payload = {
                 "data": data_mov.strftime("%Y-%m-%d"),
@@ -128,21 +122,21 @@ with tab_registo:
                 "descricao": desc_final,
                 "valor": round(float(valor), 2),
             }
-            ok, msg = enviar_movimento_webhook(payload)
+            ok, msg = enviar_movimento(payload)
             if ok:
                 st.success(f"{msg} ({payload['data']} | {entidade} | {desc_final}: {valor:.2f} €)")
             else:
                 st.error(msg)
 
 # ------------------------------------------------------------------------------
-# SEPARADOR 2: CONSULTA E RESUMO DA FOLHA GOOGLE SHEETS
+# ABA 2: MOVIMENTOS E TOTAIS
 # ------------------------------------------------------------------------------
 with tab_movimentos:
     col_t1, col_t2 = st.columns([3, 1])
     with col_t1:
-        st.subheader("Histórico Sincronizado (`Gestao_Financeira_Movimentos`)")
+        st.subheader("Histórico Sincronizado")
     with col_t2:
-        if st.button("🔄 Atualizar Dados", use_container_width=True):
+        if st.button("🔄 Atualizar", use_container_width=True):
             st.rerun()
 
     df = carregar_movimentos()
@@ -159,25 +153,21 @@ with tab_movimentos:
         total_empresa = df[df["entidade"] == "Empresa (ElementarPrivilege)"]["valor"].sum()
 
         m1, m2, m3 = st.columns(3)
-        m1.metric("Total Pessoal Familiar (Registos)", f"{total_pessoal:,.2f} €")
-        m2.metric("Total Empresa (Registos)", f"{total_empresa:,.2f} €")
-        m3.metric("Total Geral Registado", f"{(total_pessoal + total_empresa):,.2f} €")
+        m1.metric("Total Pessoal Familiar", f"{total_pessoal:,.2f} €")
+        m2.metric("Total Empresa", f"{total_empresa:,.2f} €")
+        m3.metric("Total Geral", f"{(total_pessoal + total_empresa):,.2f} €")
 
-        st.dataframe(
-            df_filtrado.iloc[::-1],  # Mais recentes primeiro
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.dataframe(df_filtrado.iloc[::-1], use_container_width=True, hide_index=True)
     else:
-        st.info("Sem registos carregados ou folha inacessível no momento.")
+        st.info("Sem movimentos carregados. Verifica se colaste o link /exec no topo do ficheiro.")
 
 # ------------------------------------------------------------------------------
-# SEPARADOR 3: PLANEAMENTO DE CICLO & BLINDAGEM FISCAL
+# ABA 3: PLANEAMENTO & BLINDAGEM FISCAL
 # ------------------------------------------------------------------------------
 with tab_planeamento:
     hoje = date.today()
     esfera_plan = st.radio(
-        "Esfera de Planeamento:",
+        "Esfera:",
         ["Pessoal Familiar", "Empresa (ElementarPrivilege)"],
         horizontal=True,
     )
