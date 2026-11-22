@@ -3,10 +3,7 @@ from datetime import date
 import pandas as pd
 import requests
 import streamlit as st
-
-# ==============================================================================
 AKfycbygTwbK_7qFXX19qf1hDxXe1wB5bIgH5AYOtdlwSt-1G_LjcYHpsA1dT-e0fPqgC7g84A
-# ==============================================================================
 WEBHOOK_URL = "COLE_AQUI_O_SEU_URL_EXEC"
 
 st.set_page_config(
