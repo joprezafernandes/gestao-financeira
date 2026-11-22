@@ -1,206 +1,171 @@
-import streamlit as st
+from datetime import date
 import pandas as pd
-import requests
-import time
-from datetime import datetime, date
+import streamlit as st
 
-st.set_page_config(page_title="Gestao Financeira", page_icon="⚖️", layout="wide")
-st.title("Gestao Financeira")
 
-CSV_URL = "https://docs.google.com/spreadsheets/d/1Vb2N6bwiU3XTCGTNGXgocYgnTBePxnsoUOfjrPy7RsU/export?format=csv"
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbygTwbK_7qFXX19qf1hDxXe1wB5bIgH5AYOtdlwSt-1G_LjcYHpsA1dT-e0fPqgC7g84A/exec"
+def render_planeamento_e_blindagem(
+    esfera: str,
+    liquido_sns_mes: float = 5600.0,
+    despesas_casa_mes: float = 3400.0,
+    faturacao_empresa_mes: float = 11750.0,
+    fixos_empresa_mes: float = 3200.0,
+    data_referencia: date | None = None,
+) -> None:
+    """
+    Módulo de fecho de ciclo, cativação à cabeça (DCA + IRS + Passivos)
+    e reconciliação da Conta Corrente de Sócio (Elementarprivilege Lda.).
+    """
+    hoje = data_referencia or date.today()
 
-def carregar_dados():
-    try:
-        url_fresca = f"{CSV_URL}&t={int(time.time())}"
-        df = pd.read_csv(url_fresca)
-        for col in ["data", "entidade", "categoria", "descricao", "valor"]:
-            if col not in df.columns:
-                df[col] = ""
-        df["valor"] = pd.to_numeric(df["valor"].astype(str).str.replace(",", "."), errors="coerce").fillna(0.0)
-        return df
-    except Exception:
-        return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
+    st.subheader("📊 Planeamento de Ciclo & Blindagem Automática")
 
-df_gastos = carregar_dados()
+    # =========================================================================
+    # 1. ESFERA PESSOAL FAMILIAR
+    # =========================================================================
+    if esfera.lower() == "pessoal":
+        # Cálculo automático da prestação Empréstimo Mãe (8x 500€: Dez/2026 a Jul/2027)
+        inicio_mae = date(2026, 12, 1)
+        if hoje < inicio_mae:
+            prestacao_atual = 0
+        else:
+            meses_decorridos = (hoje.year - inicio_mae.year) * 12 + (
+                hoje.month - inicio_mae.month
+            ) + 1
+            prestacao_atual = min(max(meses_decorridos, 0), 8)
 
-hoje = date.today()
-if hoje.day >= 20:
-    inicio_ciclo = date(hoje.year, hoje.month, 20)
-else:
-    mes_ant = hoje.month - 1 if hoje.month > 1 else 12
-    ano_ant = hoje.year if hoje.month > 1 else hoje.year - 1
-    inicio_ciclo = date(ano_ant, mes_ant, 20)
+        valor_mae_mes = 500.0 if prestacao_atual < 8 or hoje.month <= 7 and hoje.year == 2027 else 0.0
+        saldo_remanescente_mae = max(0.0, 4000.0 - (prestacao_atual * 500.0))
 
-str_inicio_ciclo = inicio_ciclo.strftime("%Y-%m-%d")
+        # Cativações mensais fixas (valores realistas calibrados)
+        provisao_irs_mes = 500.0
+        dca_msci_world_mes = 450.0  # Intervalo recomendado: 400€ - 500€/mês
 
-# Plano IVA 3T 2026 (Id. 2026.429069)
-if inicio_ciclo == date(2026, 11, 20):
-    iva_3t_valor = 2672.27
-    iva_3t_label = "Prestacao 1/2 IVA 3T (Limite 25/11)"
-    iva_3t_dia = "25"
-elif inicio_ciclo == date(2026, 12, 20):
-    iva_3t_valor = 2672.26
-    iva_3t_label = "Prestacao 2/2 IVA 3T (Limite 28/12)"
-    iva_3t_dia = "28"
-else:
-    iva_3t_valor = 0.0
-    iva_3t_label = ""
-    iva_3t_dia = ""
+        total_cativado_cabeca = valor_mae_mes + provisao_irs_mes + dca_msci_world_mes
+        margem_livre_final = liquido_sns_mes - despesas_casa_mes - total_cativado_cabeca
 
-if not df_gastos.empty and "data" in df_gastos.columns:
-    df_ciclo = df_gastos[df_gastos["data"] >= str_inicio_ciclo]
-else:
-    df_ciclo = df_gastos
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(
+            "Empréstimo Mãe (500€/mês)",
+            f"{saldo_remanescente_mae:,.2f} € em dívida",
+            f"Prestação {prestacao_atual}/8 (Termina Jul/2027)",
+        )
+        c2.metric(
+            "Pocket IRS 2027 (À Cabeça)",
+            f"{provisao_irs_mes:,.2f} €/mês",
+            "Reforçar no Sub. Férias Jun/2027",
+        )
+        c3.metric(
+            "DCA ETF (MSCI World)",
+            f"{dca_msci_world_mes:,.2f} €/mês",
+            "100% IE00B4L5Y983 (Dia 20-22)",
+        )
+        c4.metric(
+            "Margem Líquida Livre",
+            f"{margem_livre_final:,.2f} €",
+            "Após casa + cativações",
+            delta_color="normal" if margem_livre_final >= 0 else "inverse",
+        )
 
-t1, t2, t3, t4 = st.tabs(["Registo Diario", "Orcamento & Entradas", "Cronograma", "Passivos"])
+        st.markdown("#### Ordem de Execução no Arranque do Ciclo (Dia 20–22)")
+        df_pessoal = pd.DataFrame(
+            [
+                {
+                    "Prioridade": "1. Fixos Casa & Sara",
+                    "Destino": "BPI Pessoal + Cartão Sara (620€)",
+                    "Valor (€)": despesas_casa_mes,
+                    "Regra": "Cobertura base familiar + 3 dependentes",
+                },
+                {
+                    "Prioridade": "2. Amortização Mãe (0% juro)",
+                    "Destino": "Transferência Permanente (Dia 23)",
+                    "Valor (€)": valor_mae_mes,
+                    "Regra": f"Prestação {prestacao_atual}/8 — Dívida empreiteiro liquidada",
+                },
+                {
+                    "Prioridade": "3. Reserva IRS 2027",
+                    "Destino": "Revolut Pocket 'IRS 2027'",
+                    "Valor (€)": provisao_irs_mes,
+                    "Regra": "Cobre diferencial retenção SIGIC/Urgências",
+                },
+                {
+                    "Prioridade": "4. Investimento Longo Prazo",
+                    "Destino": "Best Trading Pro → iShares MSCI World",
+                    "Valor (€)": dca_msci_world_mes,
+                    "Regra": "1 ordem única/mês; não reforçar Nasdaq/Semicond.",
+                },
+            ]
+        )
+        st.dataframe(df_pessoal, use_container_width=True, hide_index=True)
 
-with t1:
-    st.subheader(f"Tetos do Ciclo (Desde {inicio_ciclo.strftime('%d/%m/%Y')})")
-    gasto_pes = df_ciclo[df_ciclo["entidade"] == "Pessoal Familiar"]["valor"].sum() if not df_ciclo.empty else 0.0
-    gasto_emp = df_ciclo[df_ciclo["entidade"] == "Empresa (ElementarPrivilege)"]["valor"].sum() if not df_ciclo.empty else 0.0
-
-    c_t1, c_t2 = st.columns(2)
-    with c_t1:
-        # 620 EUR Cartao Sara + 220 EUR Cartao Refeicao = 840 EUR
-        t_pes = st.number_input("Teto Pessoal Mensal (620 Sara + 220 Ref.) (EUR):", value=840.0, step=20.0)
-        st.metric("Saldo Restante Pessoal", f"{(t_pes - gasto_pes):.2f} EUR")
-        st.progress(min(1.0, max(0.0, gasto_pes / t_pes)) if t_pes > 0 else 1.0)
-    with c_t2:
-        t_emp = st.number_input("Teto Operacional Empresa (Via Verde/Comb./Ref.) (EUR):", value=660.0, step=50.0)
-        st.metric("Saldo Restante Empresa", f"{(t_emp - gasto_emp):.2f} EUR")
-        st.progress(min(1.0, max(0.0, gasto_emp / t_emp)) if t_emp > 0 else 1.0)
-
-    st.divider()
-    st.subheader("Lancar Despesa")
-    
-    entidade = st.radio("Conta a debitar:", ["Pessoal Familiar", "Empresa (ElementarPrivilege)"], horizontal=True)
-    
-    if entidade == "Pessoal Familiar":
-        cats = [
-            "Supermercado & Alimentacao", "Takeaway & Uber Eats", "Restaurantes",
-            "Criancas", "Empregada Domestica", "Lazer/Livros/Garrafeira", "Outro"
-        ]
+    # =========================================================================
+    # 2. ESFERA ELEMENTARPRIVILEGE UROLOGIA LDA.
+    # =========================================================================
     else:
-        cats = [
-            "Via Verde / Combustivel (Empresa)", "Refeicao Servico", "Empregada Empresa",
-            "Impostos Empresa", "Material Clinico", "Software", "Outro"
-        ]
+        # Prestação extraordinária IVA (apenas Nov e Dez 2026)
+        iva_extra_mes = 2672.26 if (hoje.year == 2026 and hoje.month in [11, 12]) else 0.0
+        provisao_hotel_mes = 1000.0 if (hoje < date(2027, 4, 1)) else 0.0
 
-    with st.form("form_despesa", clear_on_submit=True):
-        c1, c2, c3 = st.columns([2, 3, 2])
-        data_mov = c1.date_input("Data:", datetime.today())
-        cat_mov = c2.selectbox("Categoria:", cats)
-        valor_mov = c3.number_input("Valor (EUR):", min_value=0.01, step=1.0, format="%.2f")
-        desc_mov = st.text_input("Descricao (opcional):")
+        # Estimativa de lucro tributável e Reserva IRC (16% PME até 50k€)
+        lucro_estimado = max(0.0, faturacao_empresa_mes - fixos_empresa_mes)
+        reserva_irc_mes = round(lucro_estimado * 0.17, 2)  # Margem prudencial 17%
 
-        submeter = st.form_submit_button("Gravar Despesa no Google Drive", use_container_width=True)
+        # Crédito Conta Corrente Sócio (268): Mac mini M4 + Ecrã AOC OLED
+        credito_socio_equipamento = 1300.0
 
-    if submeter:
-        params = {
-            "data": data_mov.strftime("%Y-%m-%d"),
-            "entidade": entidade,
-            "categoria": cat_mov,
-            "descricao": desc_mov if desc_mov else cat_mov,
-            "valor": str(float(valor_mov))
-        }
-        with st.spinner("A gravar na Google Sheet..."):
-            try:
-                r = requests.get(WEBHOOK_URL, params=params, timeout=15)
-                if r.status_code == 200:
-                    st.success(f"Gravado com sucesso no Google Drive: {float(valor_mov):.2f} EUR em {cat_mov} ({entidade})!")
-                else:
-                    st.error(f"Erro ao gravar (Codigo {r.status_code}): {r.text}")
-            except Exception as ex:
-                st.error(f"Falha na ligacao ao Google Sheets: {ex}")
+        excedente_tesouraria = (
+            faturacao_empresa_mes
+            - fixos_empresa_mes
+            - reserva_irc_mes
+            - iva_extra_mes
+            - provisao_hotel_mes
+        )
 
-    st.divider()
-    col_hist, col_refresh = st.columns([4, 1])
-    with col_hist:
-        st.subheader("Historico de Gastos Registados")
-    with col_refresh:
-        if st.button("Atualizar Lista"):
-            st.rerun()
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(
+            "Reserva IRC (Revolut Pocket)",
+            f"{reserva_irc_mes:,.2f} €/mês",
+            "Intocável (IRC PME 16%-20%)",
+        )
+        c2.metric(
+            "Plano IVA Extraordinário",
+            f"{iva_extra_mes:,.2f} €/mês",
+            "Ativo Nov–Dez 2026" if iva_extra_mes > 0 else "Liquidado",
+        )
+        c3.metric(
+            "Crédito Sócio (Conta 268)",
+            f"{credito_socio_equipamento:,.2f} €",
+            "Mac mini M4 + Ecrã AOC (Isento IRS)",
+        )
+        c4.metric(
+            "Excedente Livre Empresa",
+            f"{excedente_tesouraria:,.2f} €",
+            "0€ para ETFs em Nov/Dez" if iva_extra_mes > 0 else "Disponível p/ reserva/invest.",
+            delta_color="normal" if excedente_tesouraria >= 0 else "inverse",
+        )
 
-    if not df_gastos.empty:
-        st.dataframe(df_gastos.sort_values(by="data", ascending=False), use_container_width=True)
-    else:
-        st.info("Ainda nao existem despesas registadas na folha.")
-
-with t2:
-    st.subheader("1. Entradas Reais Deste Ciclo")
-    c_in1, c_in2 = st.columns(2)
-    with c_in1:
-        st.markdown("#### Empresa (ElementarPrivilege)")
-        rec_luz = st.number_input("Faturacao Hospital da Luz / Privado (Dia 18-19):", value=7400.0, step=100.0)
-        rec_consultorio = st.number_input("Entrada Consultorio & Outras Clinicas (Dia 30):", value=0.0, step=100.0)
-        tot_receita_emp = rec_luz + rec_consultorio
-        
-        perc_irc = st.slider("% Provisao IRC Empresa:", min_value=0.0, max_value=15.0, value=7.0, step=0.5)
-        reserva_irc = round(tot_receita_emp * (perc_irc / 100.0), 2)
-        st.info(f"Reserva IRC a cativar a dia 16 ({perc_irc}%): **{reserva_irc:.2f} EUR**")
-
-    with c_in2:
-        st.markdown("#### Pessoal Familiar (Hospital Publico)")
-        tot_receita_pes = st.number_input("Vencimento Hospital Liquido (Normal + Adicional/SIGIC):", value=4500.0, step=100.0)
-        
-        prov_irs = st.number_input("Reserva Fiscal IRS 2027 (Revolut Pocket) a dia 24:", value=250.0, step=25.0)
-        st.info(f"Reserva IRS 2027 a transferir para Revolut Pocket: **{prov_irs:.2f} EUR**")
-
-    st.divider()
-    st.subheader("2. Balanco Operacional do Mes")
-    col_b1, col_b2 = st.columns(2)
-    
-    fixos_emp = 5734.59
-    fixos_pes = 6107.08  # Ajustado -10 EUR pela passagem de 630 EUR para 620 EUR no cartao da Sara
-    
-    saldo_emp_livre = tot_receita_emp - fixos_emp - reserva_irc - iva_3t_valor
-    saldo_pes_livre = tot_receita_pes - fixos_pes - prov_irs
-    
-    with col_b1:
-        st.metric("Total Entradas Empresa", f"{tot_receita_emp:,.2f} EUR")
-        st.write(f"- Fixos Empresa (Obra + Salarios + Carro + BPI): **{fixos_emp:,.2f} EUR**")
-        if iva_3t_valor > 0:
-            st.write(f"- {iva_3t_label}: **{iva_3t_valor:,.2f} EUR**")
-        st.caption("*(Cheques-creche de 1.050,56 EUR suspensos/isentos ate Jan)*")
-        st.write(f"- Reserva IRC ({perc_irc}%): **{reserva_irc:,.2f} EUR**")
-        st.metric("Margem Livre Empresa", f"{saldo_emp_livre:,.2f} EUR")
-        
-    with col_b2:
-        st.metric("Total Entradas Pessoal", f"{tot_receita_pes:,.2f} EUR")
-        st.write(f"- Fixos Pessoais (CH + Divida IRS + 620 Cartao Sara): **{fixos_pes:,.2f} EUR**")
-        st.write(f"- Reserva IRS 2027 (Revolut Pocket): **{prov_irs:,.2f} EUR**")
-        st.metric("Margem Livre Pessoal", f"{saldo_pes_livre:,.2f} EUR")
-
-with t3:
-    st.subheader("Cronograma Dinamico de Tesouraria (Dia 20 ao Dia 19)")
-    crono_data = [
-        {"Dia": "18-19", "Tipo": "Entrada", "Conta": "Empresa (BPI)", "Descricao": "Faturacao Hospital da Luz / Privado", "Valor": f"+{rec_luz:,.2f} EUR"},
-        {"Dia": "20-23", "Tipo": "Entrada", "Conta": "Pessoal (BPI)", "Descricao": "Vencimento Hospital (Normal + Adicional/SIGIC)", "Valor": f"+{tot_receita_pes:,.2f} EUR"},
-        {"Dia": "24", "Tipo": "Saida", "Conta": "Pessoal -> Revolut", "Descricao": "Poupanca IRS 2027 & Ferias (Revolut Pockets)", "Valor": f"-{prov_irs:,.2f} EUR"},
-    ]
-    if iva_3t_valor > 0:
-        crono_data.append({"Dia": iva_3t_dia, "Tipo": "Saida", "Conta": "Empresa (AT)", "Descricao": iva_3t_label, "Valor": f"-{iva_3t_valor:,.2f} EUR"})
-    
-    crono_data.extend([
-        {"Dia": "30", "Tipo": "Entrada", "Conta": "Empresa (BPI)", "Descricao": "Consultorio & Outras Clinicas", "Valor": f"+{rec_consultorio:,.2f} EUR"},
-        {"Dia": "30", "Tipo": "Saida", "Conta": "Pessoal (BPI)", "Descricao": "Credito Habitacao (003 + 004)", "Valor": "-3.579,12 EUR"},
-        {"Dia": "31", "Tipo": "Saida", "Conta": "Pessoal (BPI)", "Descricao": "Prestacao IRS (Plano Atual)", "Valor": "-1.385,52 EUR"},
-        {"Dia": "01", "Tipo": "Saida", "Conta": "Pessoal -> Sara", "Descricao": "Transferencia Cartao Sara (Orcamento Familiar)", "Valor": "-620,00 EUR"},
-        {"Dia": "01", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "Empregada Empresa (com Duodecimos)", "Valor": "-1.040,00 EUR"},
-        {"Dia": "01", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "TSU Seguranca Social", "Valor": "-620,29 EUR"},
-        {"Dia": "04", "Tipo": "Saida", "Conta": "Pessoal (BPI)", "Descricao": "Empregada Pessoal", "Valor": "-646,50 EUR"},
-        {"Dia": "05", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "Carro VW Bank", "Valor": "-618,79 EUR"},
-        {"Dia": "08", "Tipo": "Isento", "Conta": "Empresa", "Descricao": "Cheques-Creche (Ja Pagos ate Jan)", "Valor": "0,00 EUR"},
-        {"Dia": "10", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "Credito Equipamento Medico", "Valor": "-1.120,00 EUR"},
-        {"Dia": "15", "Tipo": "Saida", "Conta": "Empresa (BPI)", "Descricao": "Tranche Empreiteiro Obra", "Valor": "-1.437,00 EUR"},
-        {"Dia": "16", "Tipo": "Saida", "Conta": "Empresa (Revolut Pocket)", "Descricao": "Reserva Fiscal IRC (Ano Seguinte)", "Valor": f"-{reserva_irc:,.2f} EUR"}
-    ])
-    st.dataframe(pd.DataFrame(crono_data), use_container_width=True)
-
-with t4:
-    st.subheader("Passivos Transitarios")
-    st.write("Divida Obra: **8.622,00 EUR** (Termina em Mar/2027)")
-    st.write("Divida IRS: **17.071,49 EUR** (Termina em Ago/2027)")
-    if iva_3t_valor > 0:
-        st.write("Plano Flexibilizacao IVA 3T 2026 (Id. 2026.429069): **5.344,53 EUR** (2 prestacoes: 2.672,27 EUR ate 25/11 e 2.672,26 EUR ate 28/12)")
+        st.markdown("#### Regras de Blindagem Societária (`Elementarprivilege Lda.`)")
+        df_empresa = pd.DataFrame(
+            [
+                {
+                    "Rubrica": "Reserva Fiscal IRC",
+                    "Valor Mensal (€)": reserva_irc_mes,
+                    "Estado / Ação": "Transferir imediatamente para Pocket IRC",
+                },
+                {
+                    "Rubrica": "Prestação IVA (Nov/Dez 2026)",
+                    "Valor Mensal (€)": iva_extra_mes,
+                    "Estado / Ação": "Exclusivo da empresa — nunca misturar com BPI Pessoal",
+                },
+                {
+                    "Rubrica": "Provisão Hotel (até Mar/2027)",
+                    "Valor Mensal (€)": provisao_hotel_mes,
+                    "Estado / Ação": "Cativar até perfazer 6.500 €",
+                },
+                {
+                    "Rubrica": "Reembolso Sócio (PC + Ecrã)",
+                    "Valor Mensal (€)": credito_socio_equipamento,
+                    "Estado / Ação": "Transferir 1.300 € exatos p/ BPI Pessoal (enviar faturas a geral@amige.pt)",
+                },
+            ]
+        )
+        st.dataframe(df_empresa, use_container_width=True, hide_index=True)
