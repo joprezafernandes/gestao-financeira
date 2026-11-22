@@ -17,7 +17,7 @@ with st.sidebar:
     st.header("⚙️ Ligação Google Sheets")
     webhook_url = st.text_input(
         "Cola aqui o teu link /exec do Apps Script:",
-        value="",
+       value=st.secrets.get("WEBHOOK_URL", ""),
         placeholder="https://script.google.com/macros/s/AKfycb.../exec",
     ).strip()
     st.caption(
