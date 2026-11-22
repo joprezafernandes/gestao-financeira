@@ -10,9 +10,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# ==============================================================================
-# LIGAÇÃO AUTOMÁTICA VIA SECRETS (OU BARRA LATERAL SE NECESSÁRIO)
-# ==============================================================================
 secret_url = ""
 try:
     secret_url = st.secrets.get("WEBHOOK_URL", "")
@@ -27,7 +24,7 @@ with st.sidebar:
         placeholder="https://script.google.com/macros/s/AKfycb.../exec",
     ).strip()
 
-st.title("💶 Gestão Financeira — Pessoal & Empresa")
+st.title("💶 Gestão Financeira")
 
 ORIGENS_GANHOS_EMPRESA = [
     "Luz Guimarães",
@@ -41,15 +38,9 @@ ORIGENS_GANHOS_EMPRESA = [
 
 
 def parse_valor_pt(texto: str) -> float:
-    """Converte '125,50' ou '125.50' ou '1 250,00 €' para float sem bloquear no teclado do telemóvel."""
     if not texto:
         return 0.0
-    limpo = (
-        texto.strip()
-        .replace("€", "")
-        .replace(" ", "")
-        .replace(",", ".")
-    )
+    limpo = texto.strip().replace("€", "").replace(" ", "").replace(",", ".")
     try:
         return round(float(limpo), 2)
     except ValueError:
@@ -57,7 +48,6 @@ def parse_valor_pt(texto: str) -> float:
 
 
 def carregar_movimentos(url: str) -> pd.DataFrame:
-    """Lê os movimentos diretamente via Apps Script (doGet)."""
     if not url or not url.startswith("http"):
         return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
     try:
@@ -78,14 +68,13 @@ def carregar_movimentos(url: str) -> pd.DataFrame:
             df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
         return df
     except Exception as e:
-        st.warning(f"Erro ao ler a folha ({e}). Confirma o link /exec nos Secrets.")
+        st.warning(f"Erro ao ler a folha ({e}).")
         return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
 
 
 def enviar_movimento(url: str, payload: dict) -> tuple[bool, str]:
-    """Grava um novo registo no Google Sheets via Apps Script (doPost)."""
     if not url or not url.startswith("http"):
-        return False, "Falta configurar o link /exec nos Secrets do Streamlit."
+        return False, "Falta o link /exec nos Secrets do Streamlit Cloud."
     try:
         resp = requests.post(url, json=payload, timeout=12)
         if resp.status_code == 200:
@@ -95,19 +84,12 @@ def enviar_movimento(url: str, payload: dict) -> tuple[bool, str]:
         return False, f"Erro de ligação: {e}"
 
 
-# ==============================================================================
-# SEPARADORES DA APLICAÇÃO
-# ==============================================================================
 tab_registo, tab_movimentos, tab_planeamento = st.tabs(
-    [
-        "📝 Registo Rápido",
-        "📒 Movimentos & Totais",
-        "🛡️ Planeamento",
-    ]
+    ["📝 Registo", "📒 Movimentos & Totais", "🛡️ Planeamento"]
 )
 
 # ------------------------------------------------------------------------------
-# ABA 1: REGISTO RÁPIDO (OTIMIZADO PARA TELEMÓVEL)
+# ABA 1: REGISTO DIRETO (SEM st.form PARA NÃO PRENDER O TECLADO NO TELEMÓVEL)
 # ------------------------------------------------------------------------------
 with tab_registo:
     entidade = st.radio(
@@ -128,7 +110,7 @@ with tab_registo:
         ]
     else:
         tipo_movimento = st.radio(
-            "Tipo de Movimento",
+            "Tipo",
             ["Entrada / Ganho Clínica", "Despesa / Encargo Empresa"],
             horizontal=True,
         )
@@ -145,51 +127,38 @@ with tab_registo:
                 "Outro",
             ]
 
-    with st.form("form_registo_diario", clear_on_submit=True):
-        data_mov = st.date_input("Data", value=date.today())
-        label_cat = (
-            "Origem / Clínica"
-            if tipo_movimento == "Entrada / Ganho Clínica"
-            else "Categoria"
-        )
-        categoria = st.selectbox(label_cat, categorias)
+    data_mov = st.date_input("Data", value=date.today())
+    categoria = st.selectbox(
+        "Origem / Clínica" if tipo_movimento == "Entrada / Ganho Clínica" else "Categoria",
+        categorias,
+    )
+    valor_str = st.text_input("Valor (€)", key="input_valor_mov", placeholder="Ex: 25,50")
+    descricao = st.text_input("Descrição", key="input_desc_mov", placeholder="Opcional")
 
-        valor_str = st.text_input(
-            "Valor (€)",
-            placeholder="Ex.: 45,50 ou 1250",
-        )
-
-        placeholder_desc = (
-            "Ex.: Honorários Outubro, Aquablation..."
-            if tipo_movimento == "Entrada / Ganho Clínica"
-            else "Ex.: Celeiro, Lidl, Via Verde..."
-        )
-        descricao = st.text_input("Descrição / Referência", placeholder=placeholder_desc)
-
-        if st.form_submit_button("✅ Gravar Movimento", use_container_width=True):
-            valor_num = parse_valor_pt(valor_str)
-            if valor_num <= 0:
-                st.error("Introduz um valor válido maior que zero (ex.: 25,50).")
+    if st.button("✅ Gravar Movimento", type="primary", use_container_width=True):
+        valor_num = parse_valor_pt(valor_str)
+        if valor_num <= 0:
+            st.error("Escreve um valor válido (ex: 25,50).")
+        else:
+            desc_final = descricao.strip() if descricao.strip() else categoria
+            payload = {
+                "data": data_mov.strftime("%Y-%m-%d"),
+                "entidade": entidade,
+                "categoria": categoria,
+                "descricao": desc_final,
+                "valor": valor_num,
+            }
+            ok, msg = enviar_movimento(webhook_url, payload)
+            if ok:
+                st.success(f"{msg} ({payload['data']} | {categoria} — {desc_final}: {valor_num:,.2f} €)")
             else:
-                desc_final = descricao.strip() if descricao.strip() else categoria
-                payload = {
-                    "data": data_mov.strftime("%Y-%m-%d"),
-                    "entidade": entidade,
-                    "categoria": categoria,
-                    "descricao": desc_final,
-                    "valor": valor_num,
-                }
-                ok, msg = enviar_movimento(webhook_url, payload)
-                if ok:
-                    st.success(f"{msg} ({payload['data']} | {categoria} — {desc_final}: {valor_num:,.2f} €)")
-                else:
-                    st.error(msg)
+                st.error(msg)
 
 # ------------------------------------------------------------------------------
-# ABA 2: MOVIMENTOS, ENTRADAS POR CLÍNICA & TOTAIS
+# ABA 2: MOVIMENTOS E TOTAIS
 # ------------------------------------------------------------------------------
 with tab_movimentos:
-    if st.button("🔄 Atualizar Dados", use_container_width=True):
+    if st.button("🔄 Atualizar", use_container_width=True):
         st.rerun()
 
     df = carregar_movimentos(webhook_url)
@@ -211,44 +180,30 @@ with tab_movimentos:
         m2.metric("Saídas Empresa", f"{total_desp_emp:,.2f} €")
 
         m3, m4 = st.columns(2)
-        m3.metric("Saldo Líquido Empresa", f"{(total_ganhos_emp - total_desp_emp):,.2f} €")
+        m3.metric("Saldo Empresa", f"{(total_ganhos_emp - total_desp_emp):,.2f} €")
         m4.metric("Despesas Pessoal", f"{total_desp_pessoal:,.2f} €")
 
-        st.markdown("#### 🏥 Entradas por Clínica / Origem")
+        st.markdown("#### 🏥 Entradas por Clínica")
         resumo_clinicas = []
         for origem in ORIGENS_GANHOS_EMPRESA:
             cat_alvo = f"Ganho - {origem}"
             val_origem = df.loc[mask_ganhos_emp & (df["categoria_str"] == cat_alvo), "valor"].sum()
             qtd_origem = int((mask_ganhos_emp & (df["categoria_str"] == cat_alvo)).sum())
-            resumo_clinicas.append(
-                {
-                    "Origem": origem,
-                    "Registos": qtd_origem,
-                    "Total (€)": val_origem,
-                }
-            )
-        df_clinicas = pd.DataFrame(resumo_clinicas)
+            resumo_clinicas.append({"Origem": origem, "Qtd": qtd_origem, "Total (€)": val_origem})
         st.dataframe(
-            df_clinicas,
+            pd.DataFrame(resumo_clinicas),
             use_container_width=True,
             hide_index=True,
             column_config={"Total (€)": st.column_config.NumberColumn(format="%.2f €")},
         )
 
         st.divider()
-        st.markdown("#### 📋 Histórico Completo")
-        filtro_entidade = st.multiselect(
-            "Filtrar por Entidade:",
-            options=df["entidade"].dropna().unique().tolist(),
-            default=df["entidade"].dropna().unique().tolist(),
-        )
-        df_filtrado = df[df["entidade"].isin(filtro_entidade)].drop(columns=["categoria_str"])
-        st.dataframe(df_filtrado.iloc[::-1], use_container_width=True, hide_index=True)
+        st.dataframe(df.drop(columns=["categoria_str"]).iloc[::-1], use_container_width=True, hide_index=True)
     else:
-        st.info("Sem movimentos carregados. Verifica o link /exec nos Secrets.")
+        st.info("Sem movimentos carregados.")
 
 # ------------------------------------------------------------------------------
-# ABA 3: PLANEAMENTO & BLINDAGEM FISCAL
+# ABA 3: PLANEAMENTO
 # ------------------------------------------------------------------------------
 with tab_planeamento:
     hoje = date.today()
@@ -261,16 +216,11 @@ with tab_planeamento:
     if esfera_plan == "Pessoal Familiar":
         liquido_sns = st.number_input("Vencimento Líquido SNS (€)", value=5600.0, step=100.0)
         despesas_casa = st.number_input("Despesas Fixas & Casa (€)", value=3400.0, step=50.0)
-
-        provisao_irs_mes = 500.0
-        dca_etf_mes = 450.0
-        margem_livre = liquido_sns - despesas_casa - provisao_irs_mes - dca_etf_mes
-
+        margem_livre = liquido_sns - despesas_casa - 500.0 - 450.0
         c1, c2, c3 = st.columns(3)
-        c1.metric("Pocket IRS 2027", f"{provisao_irs_mes:,.2f} €/mês")
-        c2.metric("DCA iShares MSCI World", f"{dca_etf_mes:,.2f} €/mês")
-        c3.metric("Margem Líquida Livre", f"{margem_livre:,.2f} €")
-
+        c1.metric("Pocket IRS 2027", "500,00 €/mês")
+        c2.metric("DCA MSCI World", "450,00 €/mês")
+        c3.metric("Margem Livre", f"{margem_livre:,.2f} €")
     else:
         entradas_mes_atual = 0.0
         if not df.empty and "data" in df.columns:
@@ -283,23 +233,17 @@ with tab_planeamento:
             entradas_mes_atual = float(df.loc[mask_mes, "valor"].sum())
 
         valor_default_fat = entradas_mes_atual if entradas_mes_atual > 0 else 11750.0
-        faturacao_emp = st.number_input(
-            f"Entradas Mensais (€) [Registado este mês: {entradas_mes_atual:,.2f} €]",
-            value=valor_default_fat,
-            step=250.0,
-        )
-        fixos_emp = st.number_input("Encargos Fixos & Contabilidade (€)", value=3200.0, step=100.0)
+        faturacao_emp = st.number_input("Entradas Mensais (€)", value=valor_default_fat, step=250.0)
+        fixos_emp = st.number_input("Encargos Fixos (€)", value=3200.0, step=100.0)
 
         iva_extra = 2672.26 if (hoje.year == 2026 and hoje.month in [11, 12]) else 0.0
         provisao_hotel = 1000.0 if (hoje < date(2027, 4, 1)) else 0.0
         reserva_irc = round(max(0.0, faturacao_emp - fixos_emp) * 0.17, 2)
-        credito_socio = 1300.0
         excedente_emp = faturacao_emp - fixos_emp - reserva_irc - iva_extra - provisao_hotel
 
         c1, c2 = st.columns(2)
-        c1.metric("Reserva IRC (17%)", f"{reserva_irc:,.2f} €/mês")
-        c2.metric("IVA Extraordinário", f"{iva_extra:,.2f} €/mês")
-
+        c1.metric("Reserva IRC (17%)", f"{reserva_irc:,.2f} €")
+        c2.metric("IVA Extraordinário", f"{iva_extra:,.2f} €")
         c3, c4 = st.columns(2)
-        c3.metric("Crédito Sócio (Conta 268)", f"{credito_socio:,.2f} €")
-        c4.metric("Excedente Livre Empresa", f"{excedente_emp:,.2f} €")
+        c3.metric("Crédito Sócio (268)", "1.300,00 €")
+        c4.metric("Excedente Livre", f"{excedente_emp:,.2f} €")
