@@ -36,6 +36,12 @@ ORIGENS_GANHOS_EMPRESA = [
     "Outros",
 ]
 
+ORIGENS_GANHOS_PESSOAL = [
+    "Vencimento SNS",
+    "Subsídio Férias / Natal",
+    "Reembolso IRS / Outros Pessoais",
+]
+
 
 def parse_valor_pt(texto: str, default: float = 0.0) -> float:
     if not texto or not str(texto).strip():
@@ -89,7 +95,7 @@ tab_registo, tab_movimentos, tab_planeamento = st.tabs(
 )
 
 # ------------------------------------------------------------------------------
-# ABA 1: REGISTO DIRETO
+# ABA 1: REGISTO DIRETO (ENTRADAS E DESPESAS PARA PESSOAL E EMPRESA)
 # ------------------------------------------------------------------------------
 with tab_registo:
     entidade = st.radio(
@@ -99,15 +105,22 @@ with tab_registo:
     )
 
     if entidade == "Pessoal Familiar":
-        tipo_movimento = "Despesa"
-        categorias = [
-            "Supermercado & Alimentacao",
-            "Habitacao / Energia / Casa",
-            "Filhos & Educacao",
-            "Saude & Suplementos",
-            "Lazer/Livros/Garrafeira",
-            "Outro",
-        ]
+        tipo_movimento = st.radio(
+            "Tipo",
+            ["Despesa Pessoal", "Entrada / Vencimento Pessoal"],
+            horizontal=True,
+        )
+        if tipo_movimento == "Entrada / Vencimento Pessoal":
+            categorias = [f"Ganho Pessoal - {origem}" for origem in ORIGENS_GANHOS_PESSOAL]
+        else:
+            categorias = [
+                "Supermercado & Alimentacao",
+                "Habitacao / Energia / Casa",
+                "Filhos & Educacao",
+                "Saude & Suplementos",
+                "Lazer/Livros/Garrafeira",
+                "Outro",
+            ]
     else:
         tipo_movimento = st.radio(
             "Tipo",
@@ -128,17 +141,18 @@ with tab_registo:
             ]
 
     data_mov = st.date_input("Data", value=date.today())
+    is_entrada = tipo_movimento.startswith("Entrada")
     categoria = st.selectbox(
-        "Origem / Clínica" if tipo_movimento == "Entrada / Ganho Clínica" else "Categoria",
+        "Origem" if is_entrada else "Categoria",
         categorias,
     )
-    valor_str = st.text_input("Valor (€)", key="input_valor_mov", placeholder="Ex: 25,50")
+    valor_str = st.text_input("Valor (€)", key="input_valor_mov", placeholder="Ex: 5600 ou 25,50")
     descricao = st.text_input("Descrição", key="input_desc_mov", placeholder="Opcional")
 
     if st.button("✅ Gravar Movimento", type="primary", use_container_width=True):
         valor_num = parse_valor_pt(valor_str, default=0.0)
         if valor_num <= 0:
-            st.error("Escreve um valor válido (ex: 25,50).")
+            st.error("Escreve um valor válido (ex: 5600 ou 25,50).")
         else:
             desc_final = descricao.strip() if descricao.strip() else categoria
             payload = {
@@ -155,7 +169,7 @@ with tab_registo:
                 st.error(msg)
 
 # ------------------------------------------------------------------------------
-# ABA 2: MOVIMENTOS E TOTAIS
+# ABA 2: MOVIMENTOS E TOTAIS (EMPRESA + PESSOAL FAMILIAR)
 # ------------------------------------------------------------------------------
 with tab_movimentos:
     if st.button("🔄 Atualizar", use_container_width=True):
@@ -165,25 +179,38 @@ with tab_movimentos:
 
     if not df.empty:
         df["categoria_str"] = df["categoria"].astype(str)
+
+        # Totais Empresa
         mask_ganhos_emp = (df["entidade"] == "Empresa (ElementarPrivilege)") & (
             df["categoria_str"].str.startswith("Ganho - ")
         )
         mask_desp_emp = (df["entidade"] == "Empresa (ElementarPrivilege)") & (~mask_ganhos_emp)
-        mask_desp_pessoal = df["entidade"] == "Pessoal Familiar"
+
+        # Totais Pessoal Familiar
+        mask_ganhos_pessoal = (df["entidade"] == "Pessoal Familiar") & (
+            df["categoria_str"].str.startswith("Ganho Pessoal - ")
+        )
+        mask_desp_pessoal = (df["entidade"] == "Pessoal Familiar") & (~mask_ganhos_pessoal)
 
         total_ganhos_emp = df.loc[mask_ganhos_emp, "valor"].sum()
         total_desp_emp = df.loc[mask_desp_emp, "valor"].sum()
+        total_ganhos_pessoal = df.loc[mask_ganhos_pessoal, "valor"].sum()
         total_desp_pessoal = df.loc[mask_desp_pessoal, "valor"].sum()
 
-        m1, m2 = st.columns(2)
-        m1.metric("Entradas Empresa", f"{total_ganhos_emp:,.2f} €")
-        m2.metric("Saídas Empresa", f"{total_desp_emp:,.2f} €")
+        st.markdown("#### 🏢 Resumo Empresa (ElementarPrivilege)")
+        e1, e2, e3 = st.columns(3)
+        e1.metric("Entradas Empresa", f"{total_ganhos_emp:,.2f} €")
+        e2.metric("Saídas Empresa", f"{total_desp_emp:,.2f} €")
+        e3.metric("Saldo Líquido Empresa", f"{(total_ganhos_emp - total_desp_emp):,.2f} €")
 
-        m3, m4 = st.columns(2)
-        m3.metric("Saldo Empresa", f"{(total_ganhos_emp - total_desp_emp):,.2f} €")
-        m4.metric("Despesas Pessoal", f"{total_desp_pessoal:,.2f} €")
+        st.markdown("#### 🏠 Resumo Pessoal Familiar")
+        p1, p2, p3 = st.columns(3)
+        p1.metric("Vencimento / Entradas Pessoais", f"{total_ganhos_pessoal:,.2f} €")
+        p2.metric("Despesas Pessoais", f"{total_desp_pessoal:,.2f} €")
+        p3.metric("Saldo Líquido Pessoal", f"{(total_ganhos_pessoal - total_desp_pessoal):,.2f} €")
 
-        st.markdown("#### 🏥 Entradas por Clínica")
+        st.divider()
+        st.markdown("#### 🏥 Entradas por Clínica (Empresa)")
         resumo_clinicas = []
         for origem in ORIGENS_GANHOS_EMPRESA:
             cat_alvo = f"Ganho - {origem}"
@@ -198,12 +225,13 @@ with tab_movimentos:
         )
 
         st.divider()
+        st.markdown("#### 📋 Todos os Movimentos")
         st.dataframe(df.drop(columns=["categoria_str"]).iloc[::-1], use_container_width=True, hide_index=True)
     else:
         st.info("Sem movimentos carregados.")
 
 # ------------------------------------------------------------------------------
-# ABA 3: PLANEAMENTO (CAMPOS DE TEXTO LIVRE — ZERO st.number_input)
+# ABA 3: PLANEAMENTO
 # ------------------------------------------------------------------------------
 with tab_planeamento:
     hoje = date.today()
@@ -214,7 +242,20 @@ with tab_planeamento:
     )
 
     if esfera_plan == "Pessoal Familiar":
-        sns_str = st.text_input("Vencimento Líquido SNS (€)", value="5600", key="plan_sns")
+        entradas_pessoal_mes = 0.0
+        if not df.empty and "data" in df.columns:
+            prefixo_mes = hoje.strftime("%Y-%m")
+            mask_mes_p = (
+                (df["entidade"] == "Pessoal Familiar")
+                & (df["categoria"].astype(str).str.startswith("Ganho Pessoal - "))
+                & (df["data"].astype(str).str.startswith(prefixo_mes))
+            )
+            entradas_pessoal_mes = float(df.loc[mask_mes_p, "valor"].sum())
+
+        default_sns_str = (
+            f"{entradas_pessoal_mes:.2f}".replace(".", ",") if entradas_pessoal_mes > 0 else "5600"
+        )
+        sns_str = st.text_input("Vencimento / Entradas Pessoais (€)", value=default_sns_str, key="plan_sns")
         casa_str = st.text_input("Despesas Fixas & Casa (€)", value="3400", key="plan_casa")
 
         liquido_sns = max(0.0, parse_valor_pt(sns_str, default=5600.0))
@@ -254,3 +295,4 @@ with tab_planeamento:
         c3, c4 = st.columns(2)
         c3.metric("Crédito Sócio (268)", "1.300,00 €")
         c4.metric("Excedente Livre", f"{excedente_emp:,.2f} €")
+        
