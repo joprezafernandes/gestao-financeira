@@ -215,4 +215,14 @@ with tab_planeamento:
         with col_e2:
             fixos_emp = st.number_input("Encargos Fixos & Contabilidade (€)", value=3200.0, step=100.0)
 
-        iva_extra = 2672.26 if (hoje.year == 2026 and hoje.month in [11, 12]) else
+        iva_extra = 2672.26 if (hoje.year == 2026 and hoje.month in [11, 12]) else 0.0
+        provisao_hotel = 1000.0 if (hoje < date(2027, 4, 1)) else 0.0
+        reserva_irc = round(max(0.0, faturacao_emp - fixos_emp) * 0.17, 2)
+        credito_socio = 1300.0
+        excedente_emp = faturacao_emp - fixos_emp - reserva_irc - iva_extra - provisao_hotel
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Reserva IRC (Pocket)", f"{reserva_irc:,.2f} €/mês", "Intocável")
+        c2.metric("IVA Extraordinário", f"{iva_extra:,.2f} €/mês", "Nov–Dez 2026")
+        c3.metric("Crédito Sócio (Conta 268)", f"{credito_socio:,.2f} €", "Mac mini + Ecrã (Isento IRS)")
+        c4.metric("Excedente Livre Empresa", f"{excedente_emp:,.2f} €")
