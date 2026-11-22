@@ -88,9 +88,6 @@ tab_registo, tab_movimentos, tab_planeamento = st.tabs(
     ["📝 Registo", "📒 Movimentos & Totais", "🛡️ Planeamento"]
 )
 
-# ------------------------------------------------------------------------------
-# ABA 1: REGISTO DIRETO (SEM st.form PARA NÃO PRENDER O TECLADO NO TELEMÓVEL)
-# ------------------------------------------------------------------------------
 with tab_registo:
     entidade = st.radio(
         "Entidade",
@@ -154,9 +151,6 @@ with tab_registo:
             else:
                 st.error(msg)
 
-# ------------------------------------------------------------------------------
-# ABA 2: MOVIMENTOS E TOTAIS
-# ------------------------------------------------------------------------------
 with tab_movimentos:
     if st.button("🔄 Atualizar", use_container_width=True):
         st.rerun()
@@ -202,9 +196,6 @@ with tab_movimentos:
     else:
         st.info("Sem movimentos carregados.")
 
-# ------------------------------------------------------------------------------
-# ABA 3: PLANEAMENTO
-# ------------------------------------------------------------------------------
 with tab_planeamento:
     hoje = date.today()
     esfera_plan = st.radio(
@@ -237,13 +228,4 @@ with tab_planeamento:
         fixos_emp = st.number_input("Encargos Fixos (€)", value=3200.0, step=100.0)
 
         iva_extra = 2672.26 if (hoje.year == 2026 and hoje.month in [11, 12]) else 0.0
-        provisao_hotel = 1000.0 if (hoje < date(2027, 4, 1)) else 0.0
-        reserva_irc = round(max(0.0, faturacao_emp - fixos_emp) * 0.17, 2)
-        excedente_emp = faturacao_emp - fixos_emp - reserva_irc - iva_extra - provisao_hotel
-
-        c1, c2 = st.columns(2)
-        c1.metric("Reserva IRC (17%)", f"{reserva_irc:,.2f} €")
-        c2.metric("IVA Extraordinário", f"{iva_extra:,.2f} €")
-        c3, c4 = st.columns(2)
-        c3.metric("Crédito Sócio (268)", "1.300,00 €")
-        c4.metric("Excedente Livre", f"{excedente_emp:,.2f} €")
+        provisao_hotel = 1000.0 if (hoje < date(2027
