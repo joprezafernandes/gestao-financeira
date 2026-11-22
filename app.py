@@ -16,7 +16,7 @@ st.set_page_config(
 with st.sidebar:
     st.header("⚙️ Ligação Google Sheets")
     webhook_url = st.text_input(
-        "value="https://script.google.com/macros/s/AKfycbygTwbK_7qFXX19qf1hDxXe1wB.../exec",
+        "Cola aqui o teu link /exec do Apps Script:",
         value="",
         placeholder="https://script.google.com/macros/s/AKfycb.../exec",
     ).strip()
@@ -233,7 +233,7 @@ with tab_movimentos:
         st.info("Abre a seta '>' no canto superior esquerdo e cola o teu link /exec para carregar os movimentos.")
 
 # ------------------------------------------------------------------------------
-# ABA 3: PLANEAMENTO & BLINDAGEM FISCAL (SEM DÍVIDA À MÃE)
+# ABA 3: PLANEAMENTO & BLINDAGEM FISCAL
 # ------------------------------------------------------------------------------
 with tab_planeamento:
     hoje = date.today()
@@ -260,7 +260,6 @@ with tab_planeamento:
         c3.metric("Margem Líquida Livre", f"{margem_livre:,.2f} €", "Após casa + IRS + ETF")
 
     else:
-        # Calcula automaticamente quanto já entrou no mês corrente por clínica
         entradas_mes_atual = 0.0
         if not df.empty and "data" in df.columns:
             prefixo_mes = hoje.strftime("%Y-%m")
