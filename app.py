@@ -37,10 +37,10 @@ ORIGENS_GANHOS_EMPRESA = [
 ]
 
 
-def parse_valor_pt(texto: str) -> float:
-    if not texto:
-        return 0.0
-    limpo = texto.strip().replace("€", "").replace(" ", "").replace(",", ".")
+def parse_valor_pt(texto: str, default: float = 0.0) -> float:
+    if not texto or not str(texto).strip():
+        return default
+    limpo = str(texto).strip().replace("€", "").replace(" ", "").replace(",", ".")
     try:
         return round(float(limpo), 2)
     except ValueError:
@@ -88,6 +88,9 @@ tab_registo, tab_movimentos, tab_planeamento = st.tabs(
     ["📝 Registo", "📒 Movimentos & Totais", "🛡️ Planeamento"]
 )
 
+# ------------------------------------------------------------------------------
+# ABA 1: REGISTO DIRETO
+# ------------------------------------------------------------------------------
 with tab_registo:
     entidade = st.radio(
         "Entidade",
@@ -133,7 +136,7 @@ with tab_registo:
     descricao = st.text_input("Descrição", key="input_desc_mov", placeholder="Opcional")
 
     if st.button("✅ Gravar Movimento", type="primary", use_container_width=True):
-        valor_num = parse_valor_pt(valor_str)
+        valor_num = parse_valor_pt(valor_str, default=0.0)
         if valor_num <= 0:
             st.error("Escreve um valor válido (ex: 25,50).")
         else:
@@ -151,6 +154,9 @@ with tab_registo:
             else:
                 st.error(msg)
 
+# ------------------------------------------------------------------------------
+# ABA 2: MOVIMENTOS E TOTAIS
+# ------------------------------------------------------------------------------
 with tab_movimentos:
     if st.button("🔄 Atualizar", use_container_width=True):
         st.rerun()
@@ -196,6 +202,9 @@ with tab_movimentos:
     else:
         st.info("Sem movimentos carregados.")
 
+# ------------------------------------------------------------------------------
+# ABA 3: PLANEAMENTO (CAMPOS DE TEXTO LIVRE — ZERO st.number_input)
+# ------------------------------------------------------------------------------
 with tab_planeamento:
     hoje = date.today()
     esfera_plan = st.radio(
@@ -205,9 +214,13 @@ with tab_planeamento:
     )
 
     if esfera_plan == "Pessoal Familiar":
-        liquido_sns = st.number_input("Vencimento Líquido SNS (€)", value=5600.0, step=100.0)
-        despesas_casa = st.number_input("Despesas Fixas & Casa (€)", value=3400.0, step=50.0)
+        sns_str = st.text_input("Vencimento Líquido SNS (€)", value="5600", key="plan_sns")
+        casa_str = st.text_input("Despesas Fixas & Casa (€)", value="3400", key="plan_casa")
+
+        liquido_sns = max(0.0, parse_valor_pt(sns_str, default=5600.0))
+        despesas_casa = max(0.0, parse_valor_pt(casa_str, default=3400.0))
         margem_livre = liquido_sns - despesas_casa - 500.0 - 450.0
+
         c1, c2, c3 = st.columns(3)
         c1.metric("Pocket IRS 2027", "500,00 €/mês")
         c2.metric("DCA MSCI World", "450,00 €/mês")
@@ -223,9 +236,12 @@ with tab_planeamento:
             )
             entradas_mes_atual = float(df.loc[mask_mes, "valor"].sum())
 
-        valor_default_fat = entradas_mes_atual if entradas_mes_atual > 0 else 11750.0
-        faturacao_emp = st.number_input("Entradas Mensais (€)", value=valor_default_fat, step=250.0)
-        fixos_emp = st.number_input("Encargos Fixos (€)", value=3200.0, step=100.0)
+        default_fat_str = f"{entradas_mes_atual:.2f}".replace(".", ",") if entradas_mes_atual > 0 else "11750"
+        fat_str = st.text_input("Entradas Mensais (€)", value=default_fat_str, key="plan_fat")
+        fixos_str = st.text_input("Encargos Fixos (€)", value="3200", key="plan_fixos")
+
+        faturacao_emp = max(0.0, parse_valor_pt(fat_str, default=11750.0))
+        fixos_emp = max(0.0, parse_valor_pt(fixos_str, default=3200.0))
 
         iva_extra = 2672.26 if (hoje.year == 2026 and hoje.month in [11, 12]) else 0.0
         provisao_hotel = 1000.0 if (hoje < date(2027, 4, 1)) else 0.0
