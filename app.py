@@ -42,6 +42,26 @@ ORIGENS_GANHOS_PESSOAL = [
     "Reembolso IRS / Outros Pessoais",
 ]
 
+# Tetos mensais por secção (valores base ajustáveis)
+TETOS_PESSOAL = {
+    "Supermercado & Alimentacao": 1000.0,
+    "Habitacao / Energia / Casa": 1400.0,
+    "Filhos & Educacao": 500.0,
+    "Saude & Suplementos": 250.0,
+    "Lazer/Livros/Garrafeira": 250.0,
+    "Outro": 200.0,
+}
+
+TETOS_EMPRESA = {
+    "Refeicao Servico": 350.0,
+    "Via Verde / Combustivel (Empresa)": 450.0,
+    "Equipamento / Informatica": 500.0,
+    "Formacao / Congressos": 600.0,
+    "Contabilidade / Impostos": 1000.0,
+    "Reembolso Socio (Conta 268)": 1300.0,
+    "Outro": 300.0,
+}
+
 
 def parse_valor_pt(texto: str, default: float = 0.0) -> float:
     if not texto or not str(texto).strip():
@@ -57,16 +77,10 @@ def obter_intervalo_ciclo(ref: date) -> tuple[date, date]:
     """Devolve (inicio, fim) do ciclo financeiro de dia 21 a dia 20."""
     if ref.day >= 21:
         inicio = date(ref.year, ref.month, 21)
-        if ref.month == 12:
-            fim = date(ref.year + 1, 1, 20)
-        else:
-            fim = date(ref.year, ref.month + 1, 20)
+        fim = date(ref.year + 1, 1, 20) if ref.month == 12 else date(ref.year, ref.month + 1, 20)
     else:
         fim = date(ref.year, ref.month, 20)
-        if ref.month == 1:
-            inicio = date(ref.year - 1, 12, 21)
-        else:
-            inicio = date(ref.year, ref.month - 1, 21)
+        inicio = date(ref.year - 1, 12, 21) if ref.month == 1 else date(ref.year, ref.month - 1, 21)
     return inicio, fim
 
 
@@ -107,8 +121,43 @@ def enviar_movimento(url: str, payload: dict) -> tuple[bool, str]:
         return False, f"Erro de ligação: {e}"
 
 
+def construir_quadro_tetos(df_subset: pd.DataFrame, tetos_dict: dict) -> pd.DataFrame:
+    linhas = []
+    for cat, teto in tetos_dict.items():
+        gasto = float(df_subset.loc[df_subset["categoria_str"] == cat, "valor"].sum()) if not df_subset.empty else 0.0
+        disponivel = teto - gasto
+        pct = min(100.0, round((gasto / teto) * 100, 1)) if teto > 0 else 0.0
+        estado = "🔴 Excedido" if disponivel < 0 else ("🟠 >80%" if pct >= 80 else "🟢 OK")
+        linhas.append(
+            {
+                "Secção / Categoria": cat,
+                "Gasto (€)": gasto,
+                "Teto (€)": teto,
+                "Disponível (€)": disponivel,
+                "Uso (%)": pct,
+                "Estado": estado,
+            }
+        )
+    # Captura eventuais categorias extra que existam na folha fora do dicionário
+    if not df_subset.empty:
+        extras = [c for c in df_subset["categoria_str"].unique() if c not in tetos_dict]
+        for cat_ex in extras:
+            gasto_ex = float(df_subset.loc[df_subset["categoria_str"] == cat_ex, "valor"].sum())
+            linhas.append(
+                {
+                    "Secção / Categoria": cat_ex,
+                    "Gasto (€)": gasto_ex,
+                    "Teto (€)": 0.0,
+                    "Disponível (€)": -gasto_ex,
+                    "Uso (%)": 100.0,
+                    "Estado": "⚪ Sem Teto",
+                }
+            )
+    return pd.DataFrame(linhas)
+
+
 tab_registo, tab_movimentos, tab_planeamento = st.tabs(
-    ["📝 Registo", "📒 Movimentos & Totais", "🛡️ Planeamento"]
+    ["📝 Registo", "📒 Movimentos & Tetos", "🛡️ Planeamento"]
 )
 
 # ------------------------------------------------------------------------------
@@ -130,14 +179,7 @@ with tab_registo:
         if tipo_movimento == "Entrada / Vencimento Pessoal":
             categorias = [f"Ganho Pessoal - {origem}" for origem in ORIGENS_GANHOS_PESSOAL]
         else:
-            categorias = [
-                "Supermercado & Alimentacao",
-                "Habitacao / Energia / Casa",
-                "Filhos & Educacao",
-                "Saude & Suplementos",
-                "Lazer/Livros/Garrafeira",
-                "Outro",
-            ]
+            categorias = list(TETOS_PESSOAL.keys())
     else:
         tipo_movimento = st.radio(
             "Tipo",
@@ -147,15 +189,7 @@ with tab_registo:
         if tipo_movimento == "Entrada / Ganho Clínica":
             categorias = [f"Ganho - {origem}" for origem in ORIGENS_GANHOS_EMPRESA]
         else:
-            categorias = [
-                "Refeicao Servico",
-                "Via Verde / Combustivel (Empresa)",
-                "Equipamento / Informatica",
-                "Formacao / Congressos",
-                "Contabilidade / Impostos",
-                "Reembolso Socio (Conta 268)",
-                "Outro",
-            ]
+            categorias = list(TETOS_EMPRESA.keys())
 
     data_mov = st.date_input("Data", value=date.today())
     is_entrada = tipo_movimento.startswith("Entrada")
@@ -186,7 +220,7 @@ with tab_registo:
                 st.error(msg)
 
 # ------------------------------------------------------------------------------
-# ABA 2: MOVIMENTOS E TOTAIS (FILTRADO POR CICLO 21 -> 20 POR DEFEITO)
+# ABA 2: MOVIMENTOS, TETOS POR SECÇÃO & TOTAIS
 # ------------------------------------------------------------------------------
 with tab_movimentos:
     if st.button("🔄 Atualizar", use_container_width=True):
@@ -210,59 +244,91 @@ with tab_movimentos:
             df = df_raw[(df_raw["data_dt"] >= inicio_ciclo) & (df_raw["data_dt"] <= fim_ciclo)].copy()
         else:
             df = df_raw.copy()
+    else:
+        df = pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
 
-        df["categoria_str"] = df["categoria"].astype(str)
+    df["categoria_str"] = df["categoria"].astype(str) if not df.empty else pd.Series(dtype=str)
 
-        # Totais Empresa
-        mask_ganhos_emp = (df["entidade"] == "Empresa (ElementarPrivilege)") & (
-            df["categoria_str"].str.startswith("Ganho - ")
-        )
-        mask_desp_emp = (df["entidade"] == "Empresa (ElementarPrivilege)") & (~mask_ganhos_emp)
+    # Máscaras Empresa e Pessoal
+    mask_ganhos_emp = (df["entidade"] == "Empresa (ElementarPrivilege)") & (
+        df["categoria_str"].str.startswith("Ganho - ")
+    ) if not df.empty else pd.Series(dtype=bool)
+    mask_desp_emp = (df["entidade"] == "Empresa (ElementarPrivilege)") & (~mask_ganhos_emp) if not df.empty else pd.Series(dtype=bool)
 
-        # Totais Pessoal Familiar
-        mask_ganhos_pessoal = (df["entidade"] == "Pessoal Familiar") & (
-            df["categoria_str"].str.startswith("Ganho Pessoal - ")
-        )
-        mask_desp_pessoal = (df["entidade"] == "Pessoal Familiar") & (~mask_ganhos_pessoal)
+    mask_ganhos_pessoal = (df["entidade"] == "Pessoal Familiar") & (
+        df["categoria_str"].str.startswith("Ganho Pessoal - ")
+    ) if not df.empty else pd.Series(dtype=bool)
+    mask_desp_pessoal = (df["entidade"] == "Pessoal Familiar") & (~mask_ganhos_pessoal) if not df.empty else pd.Series(dtype=bool)
 
-        total_ganhos_emp = df.loc[mask_ganhos_emp, "valor"].sum()
-        total_desp_emp = df.loc[mask_desp_emp, "valor"].sum()
-        total_ganhos_pessoal = df.loc[mask_ganhos_pessoal, "valor"].sum()
-        total_desp_pessoal = df.loc[mask_desp_pessoal, "valor"].sum()
+    total_ganhos_emp = float(df.loc[mask_ganhos_emp, "valor"].sum()) if not df.empty else 0.0
+    total_desp_emp = float(df.loc[mask_desp_emp, "valor"].sum()) if not df.empty else 0.0
+    total_ganhos_pessoal = float(df.loc[mask_ganhos_pessoal, "valor"].sum()) if not df.empty else 0.0
+    total_desp_pessoal = float(df.loc[mask_desp_pessoal, "valor"].sum()) if not df.empty else 0.0
 
-        st.markdown("#### 🏢 Resumo Empresa (ElementarPrivilege)")
-        e1, e2, e3 = st.columns(3)
-        e1.metric("Entradas Empresa", f"{total_ganhos_emp:,.2f} €")
-        e2.metric("Saídas Empresa", f"{total_desp_emp:,.2f} €")
-        e3.metric("Saldo Líquido Empresa", f"{(total_ganhos_emp - total_desp_emp):,.2f} €")
+    # --- RESUMO E TETOS: PESSOAL FAMILIAR ---
+    st.markdown("### 🏠 Pessoal Familiar — Resumo e Tetos por Secção")
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Vencimento / Entradas", f"{total_ganhos_pessoal:,.2f} €")
+    p2.metric("Gasto Total Pessoal", f"{total_desp_pessoal:,.2f} €", delta=f"Teto: {sum(TETOS_PESSOAL.values()):,.0f} €", delta_color="off")
+    p3.metric("Saldo Líquido Pessoal", f"{(total_ganhos_pessoal - total_desp_pessoal):,.2f} €")
 
-        st.markdown("#### 🏠 Resumo Pessoal Familiar")
-        p1, p2, p3 = st.columns(3)
-        p1.metric("Vencimento / Entradas Pessoais", f"{total_ganhos_pessoal:,.2f} €")
-        p2.metric("Despesas Pessoais", f"{total_desp_pessoal:,.2f} €")
-        p3.metric("Saldo Líquido Pessoal", f"{(total_ganhos_pessoal - total_desp_pessoal):,.2f} €")
+    df_tetos_pessoal = construir_quadro_tetos(df[mask_desp_pessoal] if not df.empty else df, TETOS_PESSOAL)
+    st.dataframe(
+        df_tetos_pessoal,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Gasto (€)": st.column_config.NumberColumn(format="%.2f €"),
+            "Teto (€)": st.column_config.NumberColumn(format="%.2f €"),
+            "Disponível (€)": st.column_config.NumberColumn(format="%.2f €"),
+            "Uso (%)": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+        },
+    )
 
-        st.divider()
-        st.markdown("#### 🏥 Entradas por Clínica (Empresa)")
-        resumo_clinicas = []
-        for origem in ORIGENS_GANHOS_EMPRESA:
-            cat_alvo = f"Ganho - {origem}"
-            val_origem = df.loc[mask_ganhos_emp & (df["categoria_str"] == cat_alvo), "valor"].sum()
-            qtd_origem = int((mask_ganhos_emp & (df["categoria_str"] == cat_alvo)).sum())
-            resumo_clinicas.append({"Origem": origem, "Qtd": qtd_origem, "Total (€)": val_origem})
-        st.dataframe(
-            pd.DataFrame(resumo_clinicas),
-            use_container_width=True,
-            hide_index=True,
-            column_config={"Total (€)": st.column_config.NumberColumn(format="%.2f €")},
-        )
+    st.divider()
 
-        st.divider()
-        st.markdown("#### 📋 Movimentos do Período")
+    # --- RESUMO E TETOS: EMPRESA ELEMENTARPRIVILEGE ---
+    st.markdown("### 🏢 ElementarPrivilege — Resumo, Clínicas e Tetos")
+    e1, e2, e3 = st.columns(3)
+    e1.metric("Entradas Clínicas", f"{total_ganhos_emp:,.2f} €")
+    e2.metric("Saídas Empresa", f"{total_desp_emp:,.2f} €", delta=f"Teto: {sum(TETOS_EMPRESA.values()):,.0f} €", delta_color="off")
+    e3.metric("Saldo Líquido Empresa", f"{(total_ganhos_emp - total_desp_emp):,.2f} €")
+
+    st.markdown("#### 🏥 Entradas por Clínica")
+    resumo_clinicas = []
+    for origem in ORIGENS_GANHOS_EMPRESA:
+        cat_alvo = f"Ganho - {origem}"
+        val_origem = float(df.loc[mask_ganhos_emp & (df["categoria_str"] == cat_alvo), "valor"].sum()) if not df.empty else 0.0
+        qtd_origem = int((mask_ganhos_emp & (df["categoria_str"] == cat_alvo)).sum()) if not df.empty else 0
+        resumo_clinicas.append({"Origem": origem, "Qtd": qtd_origem, "Total (€)": val_origem})
+    st.dataframe(
+        pd.DataFrame(resumo_clinicas),
+        use_container_width=True,
+        hide_index=True,
+        column_config={"Total (€)": st.column_config.NumberColumn(format="%.2f €")},
+    )
+
+    st.markdown("#### 📊 Encargos Empresa por Secção vs. Teto")
+    df_tetos_emp = construir_quadro_tetos(df[mask_desp_emp] if not df.empty else df, TETOS_EMPRESA)
+    st.dataframe(
+        df_tetos_emp,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Gasto (€)": st.column_config.NumberColumn(format="%.2f €"),
+            "Teto (€)": st.column_config.NumberColumn(format="%.2f €"),
+            "Disponível (€)": st.column_config.NumberColumn(format="%.2f €"),
+            "Uso (%)": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.1f%%"),
+        },
+    )
+
+    st.divider()
+    st.markdown("#### 📋 Movimentos Individuais do Período")
+    if not df.empty:
         cols_mostrar = [c for c in ["data", "entidade", "categoria", "descricao", "valor"] if c in df.columns]
         st.dataframe(df[cols_mostrar].iloc[::-1], use_container_width=True, hide_index=True)
     else:
-        st.info("Sem movimentos carregados.")
+        st.info("Sem movimentos registados neste ciclo.")
 
 # ------------------------------------------------------------------------------
 # ABA 3: PLANEAMENTO
