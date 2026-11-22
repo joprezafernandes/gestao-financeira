@@ -3,8 +3,6 @@ from datetime import date
 import pandas as pd
 import requests
 import streamlit as st
-AKfycbygTwbK_7qFXX19qf1hDxXe1wB5bIgH5AYOtdlwSt-1G_LjcYHpsA1dT-e0fPqgC7g84A
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbygTwbK_7qFXX19qf1hDxXe1wB.../exec"
 
 st.set_page_config(
     page_title="Gestão Financeira — Pessoal & ElementarPrivilege",
@@ -12,15 +10,30 @@ st.set_page_config(
     layout="wide",
 )
 
+# ==============================================================================
+# BARRA LATERAL: CONFIGURAÇÃO DO LINK /exec (SEM MEXER NO CÓDIGO)
+# ==============================================================================
+with st.sidebar:
+    st.header("⚙️ Ligação Google Sheets")
+    webhook_url = st.text_input(
+        "Cola aqui o teu link /exec do Apps Script:",
+        value="",
+        placeholder="https://script.google.com/macros/s/AKfycb.../exec",
+    ).strip()
+    st.caption(
+        "Obténs este link em: Google Sheets -> Extensões -> Apps Script -> "
+        "Implementar -> Gerir implementações."
+    )
+
 st.title("💶 Gestão Financeira — Pessoal Familiar & ElementarPrivilege")
 
 
-def carregar_movimentos() -> pd.DataFrame:
-    """Lê os movimentos diretamente via Apps Script (doGet) sem precisar de folha pública."""
-    if "COLE_AQUI" in WEBHOOK_URL or not WEBHOOK_URL.startswith("http"):
+def carregar_movimentos(url: str) -> pd.DataFrame:
+    """Lê os movimentos diretamente via Apps Script (doGet)."""
+    if not url or not url.startswith("http"):
         return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
     try:
-        resp = requests.get(WEBHOOK_URL, params={"t": int(time.time())}, timeout=12)
+        resp = requests.get(url, params={"t": int(time.time())}, timeout=12)
         resp.raise_for_status()
         df = pd.DataFrame(resp.json())
         if df.empty:
@@ -37,16 +50,19 @@ def carregar_movimentos() -> pd.DataFrame:
             df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0.0)
         return df
     except Exception as e:
-        st.warning(f"Ainda não foi possível ler a folha ({e}). Confirma se publicaste a Nova Versão no Apps Script.")
+        st.warning(
+            f"Ainda não foi possível ler a folha ({e}). "
+            "Confirma se colaste o link /exec completo na barra lateral e publicaste a Nova Versão."
+        )
         return pd.DataFrame(columns=["data", "entidade", "categoria", "descricao", "valor"])
 
 
-def enviar_movimento(payload: dict) -> tuple[bool, str]:
+def enviar_movimento(url: str, payload: dict) -> tuple[bool, str]:
     """Grava um novo registo no Google Sheets via Apps Script (doPost)."""
-    if "COLE_AQUI" in WEBHOOK_URL or not WEBHOOK_URL.startswith("http"):
-        return False, "Falta colar o teu link /exec na linha 8 (WEBHOOK_URL)."
+    if not url or not url.startswith("http"):
+        return False, "Cola primeiro o teu link /exec completo na barra lateral esquerda."
     try:
-        resp = requests.post(WEBHOOK_URL, json=payload, timeout=12)
+        resp = requests.post(url, json=payload, timeout=12)
         if resp.status_code == 200:
             return True, "Gravado com sucesso no Google Sheets!"
         return False, f"Erro HTTP {resp.status_code}: {resp.text}"
@@ -119,7 +135,7 @@ with tab_registo:
                 "descricao": desc_final,
                 "valor": round(float(valor), 2),
             }
-            ok, msg = enviar_movimento(payload)
+            ok, msg = enviar_movimento(webhook_url, payload)
             if ok:
                 st.success(f"{msg} ({payload['data']} | {entidade} | {desc_final}: {valor:.2f} €)")
             else:
@@ -136,7 +152,7 @@ with tab_movimentos:
         if st.button("🔄 Atualizar", use_container_width=True):
             st.rerun()
 
-    df = carregar_movimentos()
+    df = carregar_movimentos(webhook_url)
 
     if not df.empty:
         filtro_entidade = st.multiselect(
@@ -156,7 +172,7 @@ with tab_movimentos:
 
         st.dataframe(df_filtrado.iloc[::-1], use_container_width=True, hide_index=True)
     else:
-        st.info("Sem movimentos carregados. Verifica se colaste o link /exec no topo do ficheiro.")
+        st.info("Abre a seta '>' no canto superior esquerdo e cola o teu link /exec para carregar os movimentos.")
 
 # ------------------------------------------------------------------------------
 # ABA 3: PLANEAMENTO & BLINDAGEM FISCAL
